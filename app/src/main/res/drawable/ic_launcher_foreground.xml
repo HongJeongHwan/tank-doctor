@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- bubbles -->
+    <path
+        android:fillColor="#B3FFFFFF"
+        android:pathData="M27,40 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 Z" />
+    <path
+        android:fillColor="#80FFFFFF"
+        android:pathData="M31,31 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0 Z" />
+    <!-- tail -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M68,54 L82,43 Q79,54 82,65 Z" />
+    <!-- body -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32,54 C32,45 42,41 51,41 C60,41 68,47 71,54 C68,61 60,67 51,67 C42,67 32,63 32,54 Z" />
+    <!-- eye -->
+    <path
+        android:fillColor="#00696D"
+        android:pathData="M38.5,51.5 a2.5,2.5 0 1,0 5,0 a2.5,2.5 0 1,0 -5,0 Z" />
+    <!-- medical cross -->
+    <path
+        android:fillColor="#00A5A8"
+        android:pathData="M53,47 h4 v5 h5 v4 h-5 v5 h-4 v-5 h-5 v-4 h5 Z" />
+</vector>
