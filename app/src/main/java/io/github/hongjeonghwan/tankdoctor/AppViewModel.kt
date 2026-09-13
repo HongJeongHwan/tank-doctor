@@ -36,14 +36,25 @@ const val HISTORY_DAYS = 30L
 
 class Photo(val id: Long, val preview: ImageBitmap, val jpeg: ByteArray)
 
+/**
+ * Editor input kept in the ViewModel so it survives rotation.
+ * New drafts may hold several categories (one entry each); editing holds exactly one.
+ */
+data class EntryDraft(
+    val editingId: Long? = null,
+    val date: LocalDate = LocalDate.now(),
+    val selected: List<LogCategory> = listOf(LogCategory.WATER),
+    val notes: Map<LogCategory, String> = emptyMap(),
+)
+
 data class UiState(
     val screen: Screen = Screen.LOG,
     val settingsReturn: Screen = Screen.LOG,
     // care log
     val entries: List<LogEntry> = emptyList(),
     val filter: LogCategory? = null,
-    val editing: LogEntry? = null,
-    val newCategory: LogCategory = LogCategory.WATER,
+    val draft: EntryDraft = EntryDraft(),
+    val toast: String? = null,
     // diagnosis input
     val photos: List<Photo> = emptyList(),
     val selectedId: Long? = null,
@@ -110,33 +121,77 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setFilter(category: LogCategory?) = _state.update { it.copy(filter = category) }
 
     fun startNewEntry(category: LogCategory = LogCategory.WATER) =
-        _state.update { it.copy(screen = Screen.EDITOR, editing = null, newCategory = category) }
+        _state.update { it.copy(screen = Screen.EDITOR, draft = EntryDraft(selected = listOf(category))) }
 
     fun openEntry(entry: LogEntry) {
-        if (entry.category == LogCategory.DIAGNOSIS) {
-            openDiagnosisEntry(entry)
-        } else {
-            _state.update { it.copy(screen = Screen.EDITOR, editing = entry) }
+        if (entry.category == LogCategory.DIAGNOSIS) openDiagnosisEntry(entry) else editEntry(entry)
+    }
+
+    private fun editEntry(entry: LogEntry) = _state.update {
+        it.copy(
+            screen = Screen.EDITOR,
+            draft = EntryDraft(entry.id, entry.date, listOf(entry.category), mapOf(entry.category to entry.note)),
+        )
+    }
+
+    fun toggleDraftCategory(category: LogCategory) = updateDraft { d ->
+        when {
+            // Editing one entry: switching category carries the note over.
+            d.editingId != null ->
+                d.copy(selected = listOf(category), notes = mapOf(category to d.notes[d.selected.firstOrNull()].orEmpty()))
+            category in d.selected -> d.copy(selected = d.selected - category)
+            else -> d.copy(selected = LogCategory.userCategories.filter { it in d.selected || it == category })
         }
     }
 
-    fun saveEntry(id: Long?, date: LocalDate, category: LogCategory, note: String) {
+    fun setDraftDate(date: LocalDate) = updateDraft { it.copy(date = date) }
+
+    fun setDraftNote(category: LogCategory, note: String) =
+        updateDraft { it.copy(notes = it.notes + (category to note.take(500))) }
+
+    fun appendDraftSuggestion(category: LogCategory, text: String) = updateDraft { d ->
+        val current = d.notes[category].orEmpty()
+        d.copy(notes = d.notes + (category to if (current.isBlank()) text else "${current.trimEnd()}, $text"))
+    }
+
+    private fun updateDraft(transform: (EntryDraft) -> EntryDraft) = _state.update { it.copy(draft = transform(it.draft)) }
+
+    fun saveDraft() {
+        val d = _state.value.draft
+        if (d.selected.isEmpty()) return
         val current = _state.value.entries
-        val updated = if (id == null) {
-            current + LogEntry(newId(), date, category, note.trim())
+        val editingId = d.editingId
+        val message: String
+        val updated = if (editingId != null) {
+            val c = d.selected.first()
+            message = "기록을 수정했어요"
+            current.map { if (it.id == editingId) it.copy(date = d.date, category = c, note = d.notes[c].orEmpty().trim()) else it }
         } else {
-            current.map { if (it.id == id) it.copy(date = date, category = category, note = note.trim()) else it }
+            val base = newId()
+            val n = d.selected.size
+            message = if (n > 1) "기록 ${n}개를 저장했어요" else "기록을 저장했어요"
+            // Higher id sorts first, so the first-picked category is listed first.
+            current + d.selected.mapIndexed { i, c -> LogEntry(base + (n - 1 - i), d.date, c, d.notes[c].orEmpty().trim()) }
         }
         commit(updated)
-        _state.update { it.copy(screen = Screen.LOG, editing = null) }
+        _state.update { it.copy(screen = Screen.LOG, draft = EntryDraft(), toast = message, filter = null) }
     }
+
+    fun consumeToast() = _state.update { it.copy(toast = null) }
 
     fun deleteEntry(id: Long) {
         val target = _state.value.entries.firstOrNull { it.id == id } ?: return
         commit(_state.value.entries.filterNot { it.id == id })
         if (target.photos.isNotEmpty()) store.deletePhotosAsync(target.photos)
         _state.update {
-            it.copy(screen = Screen.LOG, editing = null, result = null, resultPhotos = emptyList(), resultEntryId = null)
+            it.copy(
+                screen = Screen.LOG,
+                draft = EntryDraft(),
+                result = null,
+                resultPhotos = emptyList(),
+                resultEntryId = null,
+                toast = "기록을 삭제했어요",
+            )
         }
     }
 

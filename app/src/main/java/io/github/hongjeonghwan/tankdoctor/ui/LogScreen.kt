@@ -21,8 +21,23 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -58,8 +73,20 @@ import java.io.File
 fun LogScreen(state: UiState, vm: AppViewModel) {
     val visible = state.entries.filter { state.filter == null || it.category == state.filter }
     val grouped = visible.groupBy { it.date }
+    val listState = rememberLazyListState()
+    val snackbar = remember { SnackbarHostState() }
+    var pendingDelete by remember { mutableStateOf<LogEntry?>(null) }
+
+    // After a save/delete: jump to the list (index 3 = first item after summary, callout, filters) and confirm.
+    LaunchedEffect(state.toast) {
+        val message = state.toast ?: return@LaunchedEffect
+        listState.animateScrollToItem(3)
+        snackbar.showSnackbar(message)
+        vm.consumeToast()
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text("어항닥터", fontWeight = FontWeight.Bold) },
@@ -79,6 +106,7 @@ fun LogScreen(state: UiState, vm: AppViewModel) {
         },
     ) { padding ->
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 104.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -101,10 +129,32 @@ fun LogScreen(state: UiState, vm: AppViewModel) {
                     )
                 }
                 items(list, key = { it.id }) { entry ->
-                    EntryRow(entry, vm.photoDir) { vm.openEntry(entry) }
+                    EntryRow(
+                        entry = entry,
+                        photoDir = vm.photoDir,
+                        onOpen = { vm.openEntry(entry) },
+                        onDelete = { pendingDelete = entry },
+                    )
                 }
             }
         }
+    }
+
+    pendingDelete?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("이 기록을 삭제할까요?") },
+            text = {
+                Text("${target.date.koreanLabel()} · ${target.category.emoji} ${target.category.label}\n삭제하면 되돌릴 수 없어요.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteEntry(target.id)
+                    pendingDelete = null
+                }) { Text("삭제") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("취소") } },
+        )
     }
 }
 
@@ -229,9 +279,9 @@ private fun EmptyLog(filtered: Boolean) {
 }
 
 @Composable
-private fun EntryRow(entry: LogEntry, photoDir: File, onClick: () -> Unit) {
+private fun EntryRow(entry: LogEntry, photoDir: File, onOpen: () -> Unit, onDelete: () -> Unit) {
     Card(
-        onClick = onClick,
+        onClick = onOpen,
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
@@ -269,6 +319,30 @@ private fun EntryRow(entry: LogEntry, photoDir: File, onClick: () -> Unit) {
             }
             entry.photos.firstOrNull()?.let { name ->
                 FileThumb(File(photoDir, name), 56.dp)
+            }
+            Box {
+                var menuOpen by remember { mutableStateOf(false) }
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "수정·삭제 메뉴")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text(if (entry.category == LogCategory.DIAGNOSIS) "결과 보기" else "수정") },
+                        leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            onOpen()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("삭제") },
+                        leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            onDelete()
+                        },
+                    )
+                }
             }
         }
     }
