@@ -14,7 +14,7 @@
 
 ## 설치
 
-1. [Releases](../../releases/latest)에서 `TankDoctor-x.y.z.apk`를 휴대폰으로 받습니다.
+1. 휴대폰에서 **https://tinyurl.com/tankdoctor** 를 열면 최신 APK가 바로 받아집니다. ([Releases](../../releases/latest)에서 받아도 됩니다.)
 2. 설치 시 "출처를 알 수 없는 앱" 허용을 켭니다.
 3. 앱 실행 → 설정 → [Google AI Studio](https://aistudio.google.com/apikey)에서 받은 무료 API 키 입력.
 
