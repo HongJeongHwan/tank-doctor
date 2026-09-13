@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -44,6 +46,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -56,6 +59,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.hongjeonghwan.tankdoctor.AppViewModel
+import io.github.hongjeonghwan.tankdoctor.MAX_PHOTOS
 import io.github.hongjeonghwan.tankdoctor.Screen
 import io.github.hongjeonghwan.tankdoctor.UiState
 import io.github.hongjeonghwan.tankdoctor.data.TankType
@@ -65,9 +69,10 @@ fun HomeScreen(state: UiState, vm: AppViewModel) {
     val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         vm.onCaptureResult(ok)
     }
-    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) vm.onImagePicked(uri)
+    val pickImages = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PHOTOS)) { uris ->
+        vm.addPhotos(uris)
     }
+    val selected = state.selectedPhoto
 
     Scaffold(
         topBar = {
@@ -92,12 +97,36 @@ fun HomeScreen(state: UiState, vm: AppViewModel) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                "사진 한 장으로 어항 상태를 진단해요",
+                "사진으로 어항 상태를 진단해요",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            PhotoBox(state.preview)
+            PhotoBox(selected?.preview)
+
+            if (state.photos.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "사진 ${state.photos.size}/$MAX_PHOTOS",
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = vm::clearPhotos, enabled = !state.loading) { Text("모두 지우기") }
+                    }
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        itemsIndexed(state.photos, key = { _, p -> p.id }) { i, photo ->
+                            PhotoThumb(
+                                photo = photo,
+                                number = i + 1,
+                                selected = photo.id == selected?.id,
+                                onClick = { vm.selectPhoto(photo.id) },
+                                onRemove = if (state.loading) null else ({ vm.removePhoto(photo.id) }),
+                            )
+                        }
+                    }
+                }
+            }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 FilledTonalButton(
@@ -108,6 +137,7 @@ fun HomeScreen(state: UiState, vm: AppViewModel) {
                             vm.showError("카메라 앱을 찾을 수 없어요. 갤러리에서 선택해 주세요.")
                         }
                     },
+                    enabled = !state.isFull && !state.loading,
                     modifier = Modifier.weight(1f).height(52.dp),
                 ) {
                     Icon(Icons.Filled.PhotoCamera, contentDescription = null)
@@ -116,8 +146,9 @@ fun HomeScreen(state: UiState, vm: AppViewModel) {
                 }
                 OutlinedButton(
                     onClick = {
-                        pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     },
+                    enabled = !state.isFull && !state.loading,
                     modifier = Modifier.weight(1f).height(52.dp),
                 ) {
                     Icon(Icons.Filled.PhotoLibrary, contentDescription = null)
@@ -125,6 +156,11 @@ fun HomeScreen(state: UiState, vm: AppViewModel) {
                     Text("갤러리")
                 }
             }
+            Text(
+                "정면 전체 1장 + 아픈 물고기·이끼·수초 근접 사진을 더하면 더 정확해요. (최대 ${MAX_PHOTOS}장)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("어항 종류", style = MaterialTheme.typography.labelLarge)
@@ -162,7 +198,7 @@ fun HomeScreen(state: UiState, vm: AppViewModel) {
 
             Button(
                 onClick = vm::diagnose,
-                enabled = state.jpeg != null && !state.loading,
+                enabled = state.photos.isNotEmpty() && !state.loading,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
             ) {
                 if (state.loading) {
@@ -172,9 +208,14 @@ fun HomeScreen(state: UiState, vm: AppViewModel) {
                         color = LocalContentColor.current,
                     )
                     Spacer(Modifier.width(12.dp))
-                    Text("분석 중… 10~30초 걸려요")
+                    Text("분석 중… 10~40초 걸려요")
                 } else {
-                    Text(if (state.jpeg == null) "먼저 사진을 골라 주세요" else "진단하기", fontSize = 17.sp)
+                    val label = when (state.photos.size) {
+                        0 -> "먼저 사진을 골라 주세요"
+                        1 -> "진단하기"
+                        else -> "사진 ${state.photos.size}장으로 진단하기"
+                    }
+                    Text(label, fontSize = 17.sp)
                 }
             }
             Spacer(Modifier.height(8.dp))

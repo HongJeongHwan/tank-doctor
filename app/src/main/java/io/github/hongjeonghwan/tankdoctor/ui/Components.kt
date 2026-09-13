@@ -1,27 +1,38 @@
 package io.github.hongjeonghwan.tankdoctor.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.github.hongjeonghwan.tankdoctor.Photo
 
 @Composable
 fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
@@ -82,6 +93,54 @@ fun BulletList(items: List<String>) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("•", style = MaterialTheme.typography.bodyMedium)
                 Text(item, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** Numbered thumbnail; the number matches "사진 N" in the diagnosis text. */
+@Composable
+fun PhotoThumb(
+    photo: Photo,
+    number: Int,
+    selected: Boolean = false,
+    size: Dp = 76.dp,
+    onClick: (() -> Unit)? = null,
+    onRemove: (() -> Unit)? = null,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    Box(Modifier.size(size)) {
+        Image(
+            bitmap = photo.preview,
+            contentDescription = "사진 $number",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(shape)
+                .then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, shape) else Modifier)
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+        )
+        Box(
+            Modifier
+                .align(Alignment.BottomStart)
+                .padding(4.dp)
+                .size(20.dp)
+                .background(Color.Black.copy(alpha = 0.6f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("$number", color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+        }
+        if (onRemove != null) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(3.dp)
+                    .size(22.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                    .clickable(onClick = onRemove),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.Close, contentDescription = "사진 $number 삭제", tint = Color.White, modifier = Modifier.size(14.dp))
             }
         }
     }

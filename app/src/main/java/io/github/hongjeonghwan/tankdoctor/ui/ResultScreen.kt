@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -35,13 +37,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.hongjeonghwan.tankdoctor.AppViewModel
+import io.github.hongjeonghwan.tankdoctor.Photo
 import io.github.hongjeonghwan.tankdoctor.Screen
 import io.github.hongjeonghwan.tankdoctor.data.Diagnosis
 import io.github.hongjeonghwan.tankdoctor.data.Issue
 import io.github.hongjeonghwan.tankdoctor.ui.theme.color
 
 @Composable
-fun ResultScreen(result: Diagnosis, vm: AppViewModel) {
+fun ResultScreen(result: Diagnosis, photos: List<Photo>, vm: AppViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -62,6 +65,14 @@ fun ResultScreen(result: Diagnosis, vm: AppViewModel) {
                 .padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            if (photos.size > 1) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    itemsIndexed(photos, key = { _, p -> p.id }) { i, photo ->
+                        PhotoThumb(photo = photo, number = i + 1, size = 60.dp)
+                    }
+                }
+            }
+
             if (!result.isAquarium) {
                 SectionCard("어항 사진이 아닌 것 같아요") {
                     Text(result.summary.ifBlank { "어항 전체가 보이도록 다시 찍어 주세요." })

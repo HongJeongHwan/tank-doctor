@@ -34,7 +34,7 @@ fun TankDoctorApp(vm: AppViewModel = viewModel()) {
 
     when (state.screen) {
         Screen.HOME -> HomeScreen(state, vm)
-        Screen.RESULT -> state.result?.let { ResultScreen(it, vm) } ?: HomeScreen(state, vm)
+        Screen.RESULT -> state.result?.let { ResultScreen(it, state.photos, vm) } ?: HomeScreen(state, vm)
         Screen.SETTINGS -> SettingsScreen(state, vm)
     }
 }
