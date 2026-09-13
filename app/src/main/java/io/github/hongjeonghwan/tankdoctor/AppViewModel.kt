@@ -77,14 +77,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         val picked = uris.take(room)
         viewModelScope.launch {
-            val loaded = withContext(Dispatchers.IO) {
-                picked.map { uri -> runCatching { ImageUtil.load(getApplication(), uri) }.getOrNull() }
+            val results = withContext(Dispatchers.IO) {
+                picked.map { uri -> runCatching { ImageUtil.load(getApplication(), uri) } }
             }
-            val photos = loaded.filterNotNull().map { Photo(nextPhotoId++, it.bitmap.asImageBitmap(), it.jpeg) }
-            val failed = loaded.count { it == null }
+            val photos = results.mapNotNull { it.getOrNull() }
+                .map { Photo(nextPhotoId++, it.bitmap.asImageBitmap(), it.jpeg) }
+            val failures = results.mapNotNull { it.exceptionOrNull() }
             val skipped = uris.size - picked.size
             val message = listOfNotNull(
-                if (failed > 0) "사진 ${failed}장을 불러오지 못했어요." else null,
+                failures.firstOrNull()?.let { e ->
+                    "사진 ${failures.size}장을 불러오지 못했어요. (${e.message ?: e.javaClass.simpleName})"
+                },
                 if (skipped > 0) "최대 ${MAX_PHOTOS}장까지라 ${skipped}장은 빠졌어요." else null,
             ).joinToString(" ").ifBlank { null }
             _state.update { s ->

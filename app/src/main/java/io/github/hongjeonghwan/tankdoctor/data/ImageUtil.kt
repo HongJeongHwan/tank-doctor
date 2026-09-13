@@ -16,8 +16,9 @@ object ImageUtil {
     fun load(context: Context, uri: Uri, maxEdge: Int = 1536): Loaded {
         val resolver = context.contentResolver
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-            ?: error("파일을 열 수 없어요")
+        // decodeStream always returns null in bounds-only mode, so check the stream, not the result.
+        val boundsStream = resolver.openInputStream(uri) ?: error("파일을 열 수 없어요")
+        boundsStream.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) error("지원하지 않는 이미지 형식이에요")
 
         var sample = 1
