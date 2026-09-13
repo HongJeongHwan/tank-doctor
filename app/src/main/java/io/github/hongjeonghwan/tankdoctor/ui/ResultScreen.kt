@@ -19,7 +19,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import io.github.hongjeonghwan.tankdoctor.UiState
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,14 +52,23 @@ import io.github.hongjeonghwan.tankdoctor.data.Issue
 import io.github.hongjeonghwan.tankdoctor.ui.theme.color
 
 @Composable
-fun ResultScreen(result: Diagnosis, photos: List<Photo>, vm: AppViewModel) {
+fun ResultScreen(state: UiState, result: Diagnosis, vm: AppViewModel) {
+    val photos = state.resultPhotos
+    var confirmDelete by remember { mutableStateOf(false) }
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("진단 결과", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = { vm.open(Screen.HOME) }) {
+                    IconButton(onClick = vm::back) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                    }
+                },
+                actions = {
+                    if (state.resultEntryId != null) {
+                        IconButton(onClick = { confirmDelete = true }) {
+                            Icon(Icons.Outlined.Delete, contentDescription = "진단 기록 삭제")
+                        }
                     }
                 },
             )
@@ -65,7 +82,15 @@ fun ResultScreen(result: Diagnosis, photos: List<Photo>, vm: AppViewModel) {
                 .padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (photos.size > 1) {
+            if (state.justSaved) {
+                Text(
+                    "✓ 관리 기록에 저장됐어요",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+
+            if (photos.isNotEmpty()) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     itemsIndexed(photos, key = { _, p -> p.id }) { i, photo ->
                         PhotoThumb(photo = photo, number = i + 1, size = 60.dp)
@@ -128,11 +153,22 @@ fun ResultScreen(result: Diagnosis, photos: List<Photo>, vm: AppViewModel) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            Button(onClick = { vm.open(Screen.HOME) }, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                Text("다른 사진으로 진단하기")
+            Button(onClick = vm::back, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                Text("기록으로 돌아가기")
             }
             Spacer(Modifier.height(8.dp))
         }
+    }
+
+    val entryId = state.resultEntryId
+    if (confirmDelete && entryId != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("이 진단 기록을 삭제할까요?") },
+            text = { Text("사진과 진단 결과가 함께 삭제되고 되돌릴 수 없어요.") },
+            confirmButton = { TextButton(onClick = { vm.deleteEntry(entryId) }) { Text("삭제") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("취소") } },
+        )
     }
 }
 

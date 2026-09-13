@@ -37,8 +37,10 @@ object GeminiClient {
         jpegs: List<ByteArray>,
         tankType: TankType,
         memo: String,
+        history: String,
+        tankSize: String,
     ): Diagnosis = withContext(Dispatchers.IO) {
-        val body = buildRequest(jpegs, tankType, memo).toString().toByteArray(Charsets.UTF_8)
+        val body = buildRequest(jpegs, tankType, memo, history, tankSize).toString().toByteArray(Charsets.UTF_8)
         val conn = (URL("$BASE_URL$model:generateContent").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 20_000
@@ -65,7 +67,13 @@ object GeminiClient {
         }
     }
 
-    private fun buildRequest(jpegs: List<ByteArray>, tankType: TankType, memo: String): JSONObject {
+    private fun buildRequest(
+        jpegs: List<ByteArray>,
+        tankType: TankType,
+        memo: String,
+        history: String,
+        tankSize: String,
+    ): JSONObject {
         val parts = JSONArray()
         jpegs.forEachIndexed { i, jpeg ->
             val image = JSONObject()
@@ -75,7 +83,7 @@ object GeminiClient {
             parts.put(JSONObject().put("text", "사진 ${i + 1}"))
             parts.put(JSONObject().put("inlineData", image))
         }
-        parts.put(JSONObject().put("text", userPrompt(tankType, memo, jpegs.size)))
+        parts.put(JSONObject().put("text", userPrompt(tankType, memo, jpegs.size, history, tankSize)))
         return JSONObject()
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", SYSTEM_PROMPT))))
             .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", parts)))
@@ -86,9 +94,24 @@ object GeminiClient {
             )
     }
 
-    private fun userPrompt(tankType: TankType, memo: String, photoCount: Int): String = buildString {
+    private fun userPrompt(
+        tankType: TankType,
+        memo: String,
+        photoCount: Int,
+        history: String,
+        tankSize: String,
+    ): String = buildString {
         append("어항 종류: ${tankType.promptLabel}\n")
-        if (memo.isNotBlank()) append("사용자 메모: ${memo.trim()}\n")
+        append("어항 크기: ${tankSize.ifBlank { "모름" }}\n")
+        append("오늘 날짜: ${java.time.LocalDate.now()}\n")
+        if (history.isNotBlank()) {
+            append("\n## 최근 30일 관리 기록 (최신순)\n")
+            append(history)
+            append("\n\n")
+        } else {
+            append("관리 기록: 없음\n")
+        }
+        if (memo.isNotBlank()) append("사용자 메모(오늘 증상): ${memo.trim()}\n")
         if (photoCount > 1) {
             append("사진 ${photoCount}장은 모두 같은 어항을 다른 각도나 가까이에서 찍은 것입니다. ")
             append("모든 사진을 종합해서 하나의 진단을 내려 주세요.")
@@ -150,6 +173,14 @@ object GeminiClient {
         - 사진에서 실제로 보이는 근거(evidence)만 바탕으로 판단하세요. 추측이면 추측이라고 쓰세요.
         - 사진이 여러 장이면 evidence에 "사진 2에서"처럼 몇 번째 사진에서 보였는지 적으세요.
         - 근접 사진은 정면 사진에서 잘 안 보이는 부분을 확인하는 데 쓰세요. 같은 문제를 중복으로 세지 마세요.
+        - "최근 관리 기록"이 있으면 사진에서 본 증상과 연결해서 원인을 추정하세요.
+          예: 며칠 전 새 물고기 추가 후 흰점 → 입수 스트레스·검역 부족 / 마지막 환수가 2주 이상 전 → 질산염 누적 가능 /
+          최근 약품·첨가제 투입 → 약해 가능성 / 최근 여과재를 수돗물로 세척 → 박테리아 손실.
+        - 기록에 근거한 추정이면 cause에 "기록을 보면 ~"처럼 밝히세요. 기록에 없는 사실은 지어내지 마세요.
+        - 어항 크기(리터)를 알면 보이는 물고기 수·크기와 비교해 과밀 여부를 판단하고,
+          환수량·약품·첨가제 양을 "약 20L(30%) 환수"처럼 리터 기준으로 구체적으로 안내하세요.
+          표시된 리터는 외부 치수 기준이라 실제 물은 그보다 10~20% 적다는 점을 감안하세요.
+        - 이전 AI 진단 기록이 있으면 그때보다 나아졌는지 나빠졌는지 summary에 짧게 언급하세요.
         - 암모니아·아질산·pH·수온처럼 사진으로 알 수 없는 것은 단정하지 말고 recommendedTests에 검사를 권하세요.
         - 해결책(solutions)은 초보자도 바로 따라 할 수 있게 구체적으로 쓰세요. (예: "물의 30%를 수온 맞춘 물로 환수")
         - actions는 오늘 당장 할 일부터 우선순위 순서로 3~5개.

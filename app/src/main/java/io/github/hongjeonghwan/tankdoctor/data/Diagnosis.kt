@@ -44,6 +44,8 @@ data class Diagnosis(
     val issues: List<Issue>,
     val actions: List<String>,
     val tests: List<String>,
+    /** Original JSON so the result can be stored in the care log and re-parsed later. */
+    val raw: String = "",
 ) {
     companion object {
         fun parse(json: String): Diagnosis {
@@ -70,6 +72,7 @@ data class Diagnosis(
                     .sortedBy { it.severity.ordinal },
                 actions = o.optJSONArray("actions").strings(),
                 tests = o.optJSONArray("recommendedTests").strings(),
+                raw = json,
             )
         }
 

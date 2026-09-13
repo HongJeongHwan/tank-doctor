@@ -46,13 +46,21 @@ import androidx.compose.ui.unit.dp
 import io.github.hongjeonghwan.tankdoctor.AppViewModel
 import io.github.hongjeonghwan.tankdoctor.Screen
 import io.github.hongjeonghwan.tankdoctor.UiState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import io.github.hongjeonghwan.tankdoctor.data.MODELS
+import io.github.hongjeonghwan.tankdoctor.data.TankSize
 
 @Composable
 fun SettingsScreen(state: UiState, vm: AppViewModel) {
     var key by rememberSaveable { mutableStateOf(state.apiKey) }
     var model by rememberSaveable { mutableStateOf(state.model) }
     var showKey by rememberSaveable { mutableStateOf(false) }
+    fun cm(v: Int) = if (v > 0) v.toString() else ""
+    var width by rememberSaveable { mutableStateOf(cm(state.tankSize.width)) }
+    var depth by rememberSaveable { mutableStateOf(cm(state.tankSize.depth)) }
+    var height by rememberSaveable { mutableStateOf(cm(state.tankSize.height)) }
+    val size = TankSize(width.toIntOrNull() ?: 0, depth.toIntOrNull() ?: 0, height.toIntOrNull() ?: 0)
     val uriHandler = LocalUriHandler.current
 
     Scaffold(
@@ -60,7 +68,7 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
             TopAppBar(
                 title = { Text("설정", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = { vm.open(Screen.HOME) }) {
+                    IconButton(onClick = vm::back) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
                     }
                 },
@@ -83,6 +91,37 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
                     onAction = { uriHandler.openUri("https://aistudio.google.com/apikey") },
                 )
             }
+
+            Text("어항 크기", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "가로·세로(폭)·높이를 cm로 적어 주세요. AI가 과밀 여부와 환수·약품 양을 리터 기준으로 알려줘요.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    Triple("가로", width) { v: String -> width = v },
+                    Triple("세로", depth) { v: String -> depth = v },
+                    Triple("높이", height) { v: String -> height = v },
+                ).forEach { (label, value, onChange) ->
+                    OutlinedTextField(
+                        value = value,
+                        onValueChange = { v -> onChange(v.filter { it.isDigit() }.take(3)) },
+                        label = { Text(label) },
+                        suffix = { Text("cm") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            Text(
+                if (size.isSet) "물 용량 약 ${size.liters}L" else "세 칸을 모두 채우면 용량이 계산돼요",
+                style = MaterialTheme.typography.labelLarge,
+                color = if (size.isSet) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             Text("Gemini API 키", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(
@@ -136,8 +175,7 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
 
             Spacer(Modifier.height(4.dp))
             Button(
-                onClick = { vm.saveSettings(key, model) },
-                enabled = key.isNotBlank(),
+                onClick = { vm.saveSettings(key, model, size) },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) {
                 Text("저장")

@@ -1,5 +1,7 @@
 package io.github.hongjeonghwan.tankdoctor.ui
 
+import android.graphics.BitmapFactory
+import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -24,15 +26,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.hongjeonghwan.tankdoctor.Photo
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
 
 @Composable
 fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
@@ -94,6 +103,32 @@ fun BulletList(items: List<String>) {
                 Text("•", style = MaterialTheme.typography.bodyMedium)
                 Text(item, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             }
+        }
+    }
+}
+
+private object ThumbCache {
+    private val cache = LruCache<String, ImageBitmap>(64)
+
+    fun get(file: File): ImageBitmap? = cache.get(file.path) ?: runCatching {
+        BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = 4 })?.asImageBitmap()
+    }.getOrNull()?.also { cache.put(file.path, it) }
+}
+
+/** Small thumbnail of a stored diagnosis photo, decoded off the main thread. */
+@Composable
+fun FileThumb(file: File, size: Dp) {
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, file) {
+        value = withContext(Dispatchers.IO) { ThumbCache.get(file) }
+    }
+    Box(
+        Modifier
+            .size(size)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        bitmap?.let {
+            Image(bitmap = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         }
     }
 }

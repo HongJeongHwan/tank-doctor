@@ -29,6 +29,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Settings
@@ -65,7 +66,7 @@ import io.github.hongjeonghwan.tankdoctor.UiState
 import io.github.hongjeonghwan.tankdoctor.data.TankType
 
 @Composable
-fun HomeScreen(state: UiState, vm: AppViewModel) {
+fun DiagnoseScreen(state: UiState, vm: AppViewModel) {
     val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         vm.onCaptureResult(ok)
     }
@@ -77,7 +78,12 @@ fun HomeScreen(state: UiState, vm: AppViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("어항닥터", fontWeight = FontWeight.Bold) },
+                title = { Text("사진으로 진단", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = vm::back) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                    }
+                },
                 actions = {
                     IconButton(onClick = { vm.open(Screen.SETTINGS) }) {
                         Icon(Icons.Filled.Settings, contentDescription = "설정")
@@ -96,9 +102,11 @@ fun HomeScreen(state: UiState, vm: AppViewModel) {
                 .padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            val recent = state.recentEntries.size
             Text(
-                "사진으로 어항 상태를 진단해요",
-                style = MaterialTheme.typography.titleMedium,
+                if (recent > 0) "📒 최근 30일 관리 기록 ${recent}개를 사진과 함께 보내서 원인을 찾아요."
+                else "📒 관리 기록을 남겨 두면 AI가 원인을 더 정확히 찾아요.",
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
