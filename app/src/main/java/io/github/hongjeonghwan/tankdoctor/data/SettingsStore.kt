@@ -29,6 +29,10 @@ class SettingsStore(context: Context) {
         get() = TankType.entries.firstOrNull { it.name == prefs.getString("tank_type", null) } ?: TankType.FRESH
         set(value) = prefs.edit().putString("tank_type", value.name).apply()
 
+    var fish: List<FishInfo>
+        get() = FishInfo.decode(prefs.getString("fish", "[]").orEmpty())
+        set(value) = prefs.edit().putString("fish", FishInfo.encode(value)).apply()
+
     var model: String
         get() = prefs.getString("model", null)?.takeIf { id -> MODELS.any { it.id == id } } ?: DEFAULT_MODEL
         set(value) = prefs.edit().putString("model", value).apply()

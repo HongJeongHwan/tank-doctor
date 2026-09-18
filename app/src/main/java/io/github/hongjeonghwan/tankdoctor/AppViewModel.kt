@@ -15,6 +15,7 @@ import io.github.hongjeonghwan.tankdoctor.data.LogCategory
 import io.github.hongjeonghwan.tankdoctor.data.LogEntry
 import io.github.hongjeonghwan.tankdoctor.data.LogStore
 import io.github.hongjeonghwan.tankdoctor.data.SettingsStore
+import io.github.hongjeonghwan.tankdoctor.data.FishInfo
 import io.github.hongjeonghwan.tankdoctor.data.TankSize
 import io.github.hongjeonghwan.tankdoctor.data.TankType
 import io.github.hongjeonghwan.tankdoctor.data.daysAgo
@@ -60,6 +61,7 @@ data class UiState(
     val selectedId: Long? = null,
     val tankType: TankType = TankType.FRESH,
     val tankSize: TankSize = TankSize(),
+    val fish: List<FishInfo> = emptyList(),
     val memo: String = "",
     val loading: Boolean = false,
     // diagnosis output
@@ -84,7 +86,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val photoDir: File get() = store.photoDir
 
     private val _state = MutableStateFlow(
-        UiState(apiKey = settings.apiKey, model = settings.model, tankType = settings.tankType, tankSize = settings.tankSize)
+        UiState(apiKey = settings.apiKey, model = settings.model, tankType = settings.tankType, tankSize = settings.tankSize, fish = settings.fish)
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
 
@@ -301,15 +303,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun dismissError() = _state.update { it.copy(error = null) }
 
-    fun saveSettings(apiKey: String, model: String, tankSize: TankSize) {
+    fun saveSettings(apiKey: String, model: String, tankSize: TankSize, fish: List<FishInfo>) {
         settings.apiKey = apiKey.trim()
         settings.model = model
         settings.tankSize = tankSize
+        settings.fish = fish
         _state.update {
             it.copy(
                 apiKey = settings.apiKey,
                 model = settings.model,
                 tankSize = tankSize,
+                fish = settings.fish,
                 screen = it.settingsReturn,
                 settingsNotice = null,
                 error = null,
@@ -337,6 +341,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val result = GeminiClient.diagnose(
                     s.apiKey, s.model, jpegs, s.tankType, s.memo, historyText(s.recentEntries),
                     tankSize = if (s.tankSize.isSet) s.tankSize.label else "",
+                    fish = s.fish.joinToString(", ") { "${it.name} ${it.count}마리" },
                 )
                 val id = newId()
                 val names = withContext(Dispatchers.IO) { store.savePhotos(id, jpegs) }

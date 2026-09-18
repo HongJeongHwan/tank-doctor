@@ -39,8 +39,9 @@ object GeminiClient {
         memo: String,
         history: String,
         tankSize: String,
+        fish: String = "",
     ): Diagnosis = withContext(Dispatchers.IO) {
-        val body = buildRequest(jpegs, tankType, memo, history, tankSize).toString().toByteArray(Charsets.UTF_8)
+        val body = buildRequest(jpegs, tankType, memo, history, tankSize, fish).toString().toByteArray(Charsets.UTF_8)
         val conn = (URL("$BASE_URL$model:generateContent").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 20_000
@@ -73,6 +74,7 @@ object GeminiClient {
         memo: String,
         history: String,
         tankSize: String,
+        fish: String,
     ): JSONObject {
         val parts = JSONArray()
         jpegs.forEachIndexed { i, jpeg ->
@@ -83,7 +85,7 @@ object GeminiClient {
             parts.put(JSONObject().put("text", "사진 ${i + 1}"))
             parts.put(JSONObject().put("inlineData", image))
         }
-        parts.put(JSONObject().put("text", userPrompt(tankType, memo, jpegs.size, history, tankSize)))
+        parts.put(JSONObject().put("text", userPrompt(tankType, memo, jpegs.size, history, tankSize, fish)))
         return JSONObject()
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", SYSTEM_PROMPT))))
             .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", parts)))
@@ -100,9 +102,11 @@ object GeminiClient {
         photoCount: Int,
         history: String,
         tankSize: String,
+        fish: String,
     ): String = buildString {
         append("어항 종류: ${tankType.promptLabel}\n")
         append("어항 크기: ${tankSize.ifBlank { "모름" }}\n")
+        append("현재 물고기: ${fish.ifBlank { "정보 없음" }}\n")
         append("오늘 날짜: ${java.time.LocalDate.now()}\n")
         if (history.isNotBlank()) {
             append("\n## 최근 30일 관리 기록 (최신순)\n")

@@ -33,6 +33,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,6 +51,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import io.github.hongjeonghwan.tankdoctor.data.MODELS
 import io.github.hongjeonghwan.tankdoctor.data.TankSize
+import io.github.hongjeonghwan.tankdoctor.data.FishInfo
 
 @Composable
 fun SettingsScreen(state: UiState, vm: AppViewModel) {
@@ -60,6 +62,7 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
     var width by rememberSaveable { mutableStateOf(cm(state.tankSize.width)) }
     var depth by rememberSaveable { mutableStateOf(cm(state.tankSize.depth)) }
     var height by rememberSaveable { mutableStateOf(cm(state.tankSize.height)) }
+    var fish by remember { mutableStateOf(state.fish) }
     val size = TankSize(width.toIntOrNull() ?: 0, depth.toIntOrNull() ?: 0, height.toIntOrNull() ?: 0)
     val uriHandler = LocalUriHandler.current
 
@@ -123,6 +126,36 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
+            Text("물고기 정보", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "현재 어항에 있는 물고기 종류와 마릿수를 입력해 주세요.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            fish.forEachIndexed { index, item ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = item.name,
+                        onValueChange = { value -> fish = fish.toMutableList().also { it[index] = item.copy(name = value.take(30)) } },
+                        label = { Text("종류") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = if (item.count > 0) item.count.toString() else "",
+                        onValueChange = { value -> fish = fish.toMutableList().also { it[index] = item.copy(count = value.filter(Char::isDigit).take(3).toIntOrNull() ?: 0) } },
+                        label = { Text("마릿수") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.width(100.dp),
+                    )
+                    TextButton(onClick = { fish = fish.filterIndexed { i, _ -> i != index } }) { Text("삭제") }
+                }
+            }
+            TextButton(onClick = { fish = fish + FishInfo("", 0) }) { Text("+ 물고기 추가") }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
             Text("Gemini API 키", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(
                 "Google AI Studio에서 무료로 발급받을 수 있어요. 키는 이 휴대폰에만 저장돼요.",
@@ -175,7 +208,7 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
 
             Spacer(Modifier.height(4.dp))
             Button(
-                onClick = { vm.saveSettings(key, model, size) },
+                onClick = { vm.saveSettings(key, model, size, fish.filter { it.name.isNotBlank() && it.count > 0 }) },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) {
                 Text("저장")
