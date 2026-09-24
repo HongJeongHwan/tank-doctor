@@ -32,6 +32,8 @@ data class FishInfo(
     val count: Int,
     val sizeCm: Double = 0.0,
     val kind: FishKind = FishKind.FISH,
+    /** File name of a thumbnail cut from a scan photo, so the list can show the species. */
+    val photo: String = "",
 ) {
     val isValid: Boolean get() = name.isNotBlank() && count > 0
 
@@ -53,6 +55,7 @@ data class FishInfo(
                         .put("count", it.count)
                         .put("sizeCm", it.sizeCm)
                         .put("kind", it.kind.name)
+                        .put("photo", it.photo)
                 )
             }
         }.toString()
@@ -69,6 +72,7 @@ data class FishInfo(
                         count = item.optInt("count", 0),
                         sizeCm = if (size > 0 && !size.isNaN()) size else 0.0,
                         kind = FishKind.of(item.optString("kind")),
+                        photo = item.optString("photo"),
                     )
                     if (fish.isValid) add(fish)
                 }
@@ -87,6 +91,7 @@ data class FishInfo(
                     result[index] = existing.copy(
                         count = existing.count + found.count,
                         sizeCm = if (existing.sizeCm > 0) existing.sizeCm else found.sizeCm,
+                        photo = existing.photo.ifBlank { found.photo },
                     )
                 } else {
                     result += found

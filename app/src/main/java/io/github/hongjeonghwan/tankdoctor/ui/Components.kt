@@ -117,16 +117,22 @@ fun BulletList(items: List<String>) {
 private object ThumbCache {
     private val cache = LruCache<String, ImageBitmap>(64)
 
-    fun get(file: File): ImageBitmap? = cache.get(file.path) ?: runCatching {
-        BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = 4 })?.asImageBitmap()
-    }.getOrNull()?.also { cache.put(file.path, it) }
+    fun get(file: File, sample: Int): ImageBitmap? {
+        val key = "${file.path}@$sample"
+        return cache.get(key) ?: runCatching {
+            BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
+        }.getOrNull()?.also { cache.put(key, it) }
+    }
 }
 
-/** Small thumbnail of a stored diagnosis photo, decoded off the main thread. */
+/**
+ * Small thumbnail of a stored photo, decoded off the main thread.
+ * [sample] shrinks while decoding: 4 suits full tank photos, 1 an already small crop.
+ */
 @Composable
-fun FileThumb(file: File, size: Dp) {
-    val bitmap by produceState<ImageBitmap?>(initialValue = null, file) {
-        value = withContext(Dispatchers.IO) { ThumbCache.get(file) }
+fun FileThumb(file: File, size: Dp, sample: Int = 4) {
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, file, sample) {
+        value = withContext(Dispatchers.IO) { ThumbCache.get(file, sample) }
     }
     Box(
         Modifier

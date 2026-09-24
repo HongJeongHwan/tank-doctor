@@ -15,6 +15,7 @@ import io.github.hongjeonghwan.tankdoctor.data.LogCategory
 import io.github.hongjeonghwan.tankdoctor.data.LogEntry
 import io.github.hongjeonghwan.tankdoctor.data.LogStore
 import io.github.hongjeonghwan.tankdoctor.data.SettingsStore
+import android.graphics.BitmapFactory
 import io.github.hongjeonghwan.tankdoctor.data.FishInfo
 import io.github.hongjeonghwan.tankdoctor.data.FishScan
 import io.github.hongjeonghwan.tankdoctor.data.Stocking
@@ -42,6 +43,9 @@ const val HISTORY_DAYS = 30L
 private enum class PhotoTarget { DIAGNOSE, FISH }
 
 class Photo(val id: Long, val preview: ImageBitmap, val jpeg: ByteArray)
+
+/** A species thumbnail cut from a scan photo, held until the user accepts the scan. */
+class SpeciesCrop(val preview: ImageBitmap, val jpeg: ByteArray)
 
 /**
  * Editor input kept in the ViewModel so it survives rotation.
@@ -75,6 +79,8 @@ data class UiState(
     val fishPhotos: List<Photo> = emptyList(),
     val scanning: Boolean = false,
     val scanResult: FishScan? = null,
+    /** Aligned with [scanResult]'s species; null where the model gave no usable box. */
+    val scanCrops: List<SpeciesCrop?> = emptyList(),
     val loading: Boolean = false,
     // diagnosis output
     val result: Diagnosis? = null,
@@ -102,6 +108,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val settings = SettingsStore(app)
     private val store = LogStore(app)
     val photoDir: File get() = store.photoDir
+    val speciesDir: File get() = store.speciesDir
 
     private val _state = MutableStateFlow(
         UiState(apiKey = settings.apiKey, model = settings.model, tankType = settings.tankType, tankSize = settings.tankSize, fish = settings.fish)
@@ -132,7 +139,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun back() = _state.update { s ->
         when (s.screen) {
             Screen.SETTINGS -> s.copy(screen = s.settingsReturn, settingsNotice = null)
-            Screen.FISH -> s.copy(screen = s.fishReturn, fishPhotos = emptyList(), scanResult = null, error = null)
+            Screen.FISH -> s.copy(
+                screen = s.fishReturn,
+                fishPhotos = emptyList(),
+                scanResult = null,
+                scanCrops = emptyList(),
+                error = null,
+            )
             Screen.RESULT -> s.copy(screen = Screen.LOG, result = null, resultPhotos = emptyList(), resultEntryId = null, justSaved = false)
             else -> s.copy(screen = Screen.LOG, error = null)
         }
@@ -356,15 +369,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- fish ----------
 
-    fun openFishEditor() = _state.update {
-        it.copy(
-            screen = Screen.FISH,
-            fishReturn = if (it.screen == Screen.FISH) it.fishReturn else it.screen,
-            fishDraft = it.fish,
-            fishPhotos = emptyList(),
-            scanResult = null,
-            error = null,
-        )
+    fun openFishEditor() {
+        // Crops from a scan that was never saved would otherwise sit in storage forever.
+        // Pruning on the way in is safe: nothing new has been written yet this visit.
+        store.pruneSpeciesPhotosAsync(settings.fish.map { it.photo }.toSet())
+        _state.update {
+            it.copy(
+                screen = Screen.FISH,
+                fishReturn = if (it.screen == Screen.FISH) it.fishReturn else it.screen,
+                fishDraft = it.fish,
+                fishPhotos = emptyList(),
+                scanResult = null,
+                scanCrops = emptyList(),
+                error = null,
+            )
+        }
     }
 
     fun setFishRow(index: Int, fish: FishInfo) = _state.update { s ->
@@ -421,7 +440,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                             error = scan.note.ifBlank { "사진에서 생물을 찾지 못했어요. 물고기가 잘 보이게 다시 찍어 주세요." },
                         )
                     }
-                    else -> _state.update { it.copy(scanning = false, scanResult = scan) }
+                    else -> {
+                        val crops = cropSpecies(scan, s.fishPhotos)
+                        _state.update { it.copy(scanning = false, scanResult = scan, scanCrops = crops) }
+                    }
                 }
             } catch (e: GeminiException) {
                 _state.update { it.copy(scanning = false, error = e.message) }
@@ -431,17 +453,44 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Cuts each identified species out of the photo it was seen in, off the main thread. */
+    private suspend fun cropSpecies(scan: FishScan, photos: List<Photo>): List<SpeciesCrop?> =
+        withContext(Dispatchers.IO) {
+            val sources = photos.map { photo ->
+                runCatching { BitmapFactory.decodeByteArray(photo.jpeg, 0, photo.jpeg.size) }.getOrNull()
+            }
+            scan.species.map { found ->
+                val box = found.box ?: return@map null
+                val source = sources.getOrNull(found.photoIndex) ?: return@map null
+                val cut = runCatching { ImageUtil.crop(source, box) }.getOrNull() ?: return@map null
+                SpeciesCrop(cut.bitmap.asImageBitmap(), cut.jpeg)
+            }
+        }
+
     /** [replace] swaps the whole list for the scan; otherwise counts are merged into it. */
-    fun applyScan(replace: Boolean) = _state.update { s ->
-        val scanned = s.scanResult?.fish ?: return@update s
-        s.copy(
-            fishDraft = if (replace) scanned else FishInfo.merge(s.fishDraft.filter { it.isValid }, scanned),
-            scanResult = null,
-            fishPhotos = emptyList(),
-        )
+    fun applyScan(replace: Boolean) {
+        val s = _state.value
+        val scan = s.scanResult ?: return
+        viewModelScope.launch {
+            // Thumbnails are written now so the list keeps them after the dialog closes.
+            val scanned = withContext(Dispatchers.IO) {
+                scan.species.mapIndexed { i, found ->
+                    val jpeg = s.scanCrops.getOrNull(i)?.jpeg
+                    if (jpeg == null) found.info else found.info.copy(photo = store.saveSpeciesPhoto(jpeg))
+                }
+            }
+            _state.update {
+                it.copy(
+                    fishDraft = if (replace) scanned else FishInfo.merge(it.fishDraft.filter { f -> f.isValid }, scanned),
+                    scanResult = null,
+                    scanCrops = emptyList(),
+                    fishPhotos = emptyList(),
+                )
+            }
+        }
     }
 
-    fun dismissScan() = _state.update { it.copy(scanResult = null) }
+    fun dismissScan() = _state.update { it.copy(scanResult = null, scanCrops = emptyList()) }
 
     fun saveFish() {
         val fish = _state.value.fishDraft.filter { it.isValid }
@@ -453,6 +502,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 screen = it.fishReturn,
                 fishPhotos = emptyList(),
                 scanResult = null,
+                scanCrops = emptyList(),
                 error = null,
                 toast = if (fish.isEmpty()) "물고기 목록을 비웠어요" else "물고기 ${fish.sumOf { f -> f.count }}마리를 저장했어요",
             )

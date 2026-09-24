@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import org.json.JSONArray
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 
 /** Care log persisted as one JSON file; diagnosis photos live next to it as JPEGs. */
 class LogStore(context: Context) {
@@ -42,6 +43,22 @@ class LogStore(context: Context) {
 
     fun deletePhotosAsync(names: List<String>) = writer.execute {
         names.forEach { File(photoDir, it).delete() }
+    }
+
+    /** Species thumbnails cut out of a scan photo; named so the fish list can point at them. */
+    val speciesDir: File = File(context.filesDir, "species").apply { mkdirs() }
+
+    private val speciesSeq = AtomicLong()
+
+    fun saveSpeciesPhoto(jpeg: ByteArray): String {
+        val name = "sp_${System.currentTimeMillis()}_${speciesSeq.incrementAndGet()}.jpg"
+        File(speciesDir, name).writeBytes(jpeg)
+        return name
+    }
+
+    /** Drops every species thumbnail the fish list no longer points at. */
+    fun pruneSpeciesPhotosAsync(keep: Set<String>) = writer.execute {
+        speciesDir.listFiles()?.forEach { if (it.name !in keep) it.delete() }
     }
 
     fun readPhoto(name: String): Pair<Bitmap, ByteArray>? {

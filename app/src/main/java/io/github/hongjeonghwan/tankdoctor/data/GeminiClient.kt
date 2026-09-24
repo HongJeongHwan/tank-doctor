@@ -319,13 +319,25 @@ object GeminiClient {
         - confidence는 종을 얼마나 확신하는지입니다. HIGH / MEDIUM / LOW.
           비슷한 종이 많아 헷갈리면 LOW로 두고 note에 후보를 적으세요. (예: "카디널테트라일 수도 있어요")
         - 확실하지 않다고 목록에서 빼지는 마세요. 대신 confidence를 낮추세요.
+        - box는 그 종을 가장 잘 보여 주는 개체 한 마리를 감싸는 네모입니다. 사용자에게 "이 물고기가 구피예요"라고
+          보여 줄 사진이니, 옆모습이 또렷하고 가려지지 않은 개체를 고르세요.
+          xmin·ymin·xmax·ymax는 사진 왼쪽 위를 (0,0), 오른쪽 아래를 (1000,1000)으로 본 값입니다.
+          몸 전체가 들어가되 주변 여백은 적게 잡으세요. photo는 그 개체가 보이는 사진 번호(1부터)입니다.
         - 어항 사진이 아니거나 생물이 안 보이면 isAquarium=false, species는 빈 배열로 두고 note에 이유를 쓰세요.
         - note는 짧은 한국어 존댓말 한두 문장.
     """.trimIndent()
 
     private val FISH_SCHEMA: JSONObject by lazy {
         fun str() = JSONObject().put("type", "STRING")
+        fun int() = JSONObject().put("type", "INTEGER")
         fun strEnum(vararg values: String) = str().put("enum", JSONArray(values.toList()))
+        val edges = listOf("xmin", "ymin", "xmax", "ymax")
+        val box = JSONObject()
+            .put("type", "OBJECT")
+            .put("properties", JSONObject(edges.associateWith { int() }))
+            .put("required", JSONArray(edges))
+            .put("propertyOrdering", JSONArray(edges))
+        val fields = listOf("name", "kind", "count", "adultSizeCm", "confidence", "note", "photo", "box")
         val species = JSONObject()
             .put("type", "OBJECT")
             .put(
@@ -333,15 +345,17 @@ object GeminiClient {
                     linkedMapOf(
                         "name" to str(),
                         "kind" to strEnum("FISH", "SHRIMP", "SNAIL", "OTHER"),
-                        "count" to JSONObject().put("type", "INTEGER"),
+                        "count" to int(),
                         "adultSizeCm" to JSONObject().put("type", "NUMBER"),
                         "confidence" to strEnum("HIGH", "MEDIUM", "LOW"),
                         "note" to str(),
+                        "photo" to int(),
+                        "box" to box,
                     )
                 )
             )
-            .put("required", JSONArray(listOf("name", "kind", "count", "adultSizeCm", "confidence", "note")))
-            .put("propertyOrdering", JSONArray(listOf("name", "kind", "count", "adultSizeCm", "confidence", "note")))
+            .put("required", JSONArray(fields))
+            .put("propertyOrdering", JSONArray(fields))
 
         JSONObject()
             .put("type", "OBJECT")

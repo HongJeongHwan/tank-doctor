@@ -42,4 +42,40 @@ object ImageUtil {
         bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
         return Loaded(bitmap, out.toByteArray())
     }
+
+    /**
+     * Cuts one creature out of a tank photo so the list can show what the species looks like.
+     *
+     * [box] edges run 0~1000 across the image, the way Gemini reports them. A margin is added
+     * around the box because the model tends to hug the body, and very small boxes are dropped
+     * rather than shown as a blurry smudge.
+     */
+    fun crop(source: Bitmap, box: BoundingBox, maxEdge: Int = 320, margin: Float = 0.18f): Loaded? {
+        if (!box.isValid) return null
+        val left = box.xmin / 1000f * source.width
+        val top = box.ymin / 1000f * source.height
+        val right = box.xmax / 1000f * source.width
+        val bottom = box.ymax / 1000f * source.height
+        val padX = (right - left) * margin
+        val padY = (bottom - top) * margin
+
+        val x = (left - padX).toInt().coerceIn(0, source.width - 1)
+        val y = (top - padY).toInt().coerceIn(0, source.height - 1)
+        val width = (right + padX).toInt().coerceAtMost(source.width) - x
+        val height = (bottom + padY).toInt().coerceAtMost(source.height) - y
+        // Under ~24px the crop is unreadable, so no picture beats a misleading one.
+        if (width < 24 || height < 24) return null
+
+        val cut = Bitmap.createBitmap(source, x, y, width, height)
+        val scale = maxEdge.toFloat() / max(cut.width, cut.height)
+        val scaled = if (scale < 1f) {
+            Bitmap.createScaledBitmap(cut, (cut.width * scale).toInt(), (cut.height * scale).toInt(), true)
+        } else {
+            cut
+        }
+
+        val out = ByteArrayOutputStream()
+        scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
+        return Loaded(scaled, out.toByteArray())
+    }
 }

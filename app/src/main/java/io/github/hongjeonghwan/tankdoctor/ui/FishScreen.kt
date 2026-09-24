@@ -7,6 +7,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhotoCamera
@@ -56,6 +59,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -67,8 +72,10 @@ import io.github.hongjeonghwan.tankdoctor.UiState
 import io.github.hongjeonghwan.tankdoctor.data.FishInfo
 import io.github.hongjeonghwan.tankdoctor.data.FishKind
 import io.github.hongjeonghwan.tankdoctor.data.FishScan
+import io.github.hongjeonghwan.tankdoctor.SpeciesCrop
 import io.github.hongjeonghwan.tankdoctor.data.TankType
 import io.github.hongjeonghwan.tankdoctor.data.trimNumber
+import java.io.File
 
 /** Registers what lives in the tank, by photo or by hand, and shows the resulting density. */
 @Composable
@@ -207,6 +214,7 @@ fun FishScreen(state: UiState, vm: AppViewModel) {
             state.fishDraft.forEachIndexed { index, item ->
                 FishRow(
                     item = item,
+                    speciesDir = vm.speciesDir,
                     onChange = { vm.setFishRow(index, it) },
                     onRemove = { vm.removeFishRow(index) },
                 )
@@ -234,6 +242,7 @@ fun FishScreen(state: UiState, vm: AppViewModel) {
     state.scanResult?.let { scan ->
         ScanDialog(
             scan = scan,
+            crops = state.scanCrops,
             hasExisting = state.fishDraft.any { it.isValid },
             onMerge = { vm.applyScan(replace = false) },
             onReplace = { vm.applyScan(replace = true) },
@@ -243,10 +252,18 @@ fun FishScreen(state: UiState, vm: AppViewModel) {
 }
 
 @Composable
-private fun FishRow(item: FishInfo, onChange: (FishInfo) -> Unit, onRemove: () -> Unit) {
+private fun FishRow(
+    item: FishInfo,
+    speciesDir: File,
+    onChange: (FishInfo) -> Unit,
+    onRemove: () -> Unit,
+) {
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (item.photo.isNotBlank()) {
+                    FileThumb(File(speciesDir, item.photo), 56.dp, sample = 1)
+                }
                 OutlinedTextField(
                     value = item.name,
                     onValueChange = { onChange(item.copy(name = it.take(30))) },
@@ -312,6 +329,7 @@ private fun KindPicker(kind: FishKind, onPick: (FishKind) -> Unit) {
 @Composable
 private fun ScanDialog(
     scan: FishScan,
+    crops: List<SpeciesCrop?>,
     hasExisting: Boolean,
     onMerge: () -> Unit,
     onReplace: () -> Unit,
@@ -325,27 +343,30 @@ private fun ScanDialog(
                 Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                scan.species.forEach { found ->
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                "${found.info.kind.emoji} ${found.info.name} ${found.info.count}마리",
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                found.confidence.label,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        if (found.note.isNotBlank()) {
-                            Text(
-                                found.note,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                scan.species.forEachIndexed { i, found ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        CropThumb(crops.getOrNull(i), found.info.kind.emoji)
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "${found.info.name} ${found.info.count}마리",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    found.confidence.label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (found.note.isNotBlank()) {
+                                Text(
+                                    found.note,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
@@ -374,4 +395,28 @@ private fun ScanDialog(
             }
         },
     )
+}
+
+/** The cut-out of the creature the model named, so "구피" has a face next to it. */
+@Composable
+private fun CropThumb(crop: SpeciesCrop?, fallbackEmoji: String) {
+    val shape = RoundedCornerShape(10.dp)
+    Box(
+        Modifier
+            .size(52.dp)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (crop != null) {
+            Image(
+                bitmap = crop.preview,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Text(fallbackEmoji, style = MaterialTheme.typography.titleMedium)
+        }
+    }
 }

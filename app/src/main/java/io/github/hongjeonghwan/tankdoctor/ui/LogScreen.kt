@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -119,6 +120,7 @@ fun LogScreen(state: UiState, vm: AppViewModel) {
                     tankSize = state.tankSize,
                     fish = state.fish,
                     stocking = state.stocking,
+                    speciesDir = vm.speciesDir,
                     onEditTank = { vm.open(Screen.SETTINGS) },
                     onEditFish = vm::openFishEditor,
                 )
@@ -175,6 +177,7 @@ private fun SummaryCard(
     tankSize: TankSize,
     fish: List<FishInfo>,
     stocking: Stocking?,
+    speciesDir: File,
     onEditTank: () -> Unit,
     onEditFish: () -> Unit,
 ) {
@@ -202,6 +205,25 @@ private fun SummaryCard(
                     .weight(1.4f)
                     .clickable(onClick = onEditFish),
             )
+        }
+        val portraits = fish.filter { it.photo.isNotBlank() }
+        if (portraits.isNotEmpty()) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(portraits, key = { it.photo }) { f ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.width(52.dp).clickable(onClick = onEditFish),
+                    ) {
+                        FileThumb(File(speciesDir, f.photo), 48.dp, sample = 1)
+                        Text(
+                            f.name,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("🐠  밀집도", modifier = Modifier.weight(1f))
