@@ -38,10 +38,21 @@ data class LogEntry(
     val note: String,
     val photos: List<String> = emptyList(),
     val diagnosisJson: String? = null,
+    /** Stocking changes, for 물고기 entries. */
+    val changesJson: String? = null,
 ) {
     val diagnosis: Diagnosis? by lazy {
         diagnosisJson?.let { runCatching { Diagnosis.parse(it) }.getOrNull() }
     }
+
+    val changes: List<FishChange> by lazy { FishChange.decode(changesJson) }
+
+    /** What the log list shows: the structured lines first, then any free note. */
+    val summary: String
+        get() = listOfNotNull(
+            changes.joinToString(", ") { it.label }.ifBlank { null },
+            note.ifBlank { null },
+        ).joinToString(" · ")
 
     fun toJson(): JSONObject = JSONObject()
         .put("id", id)
@@ -50,6 +61,7 @@ data class LogEntry(
         .put("note", note)
         .put("photos", JSONArray(photos))
         .put("diagnosis", diagnosisJson ?: JSONObject.NULL)
+        .put("changes", changesJson ?: JSONObject.NULL)
 
     companion object {
         fun fromJson(o: JSONObject): LogEntry {
@@ -61,6 +73,7 @@ data class LogEntry(
                 note = o.optString("note"),
                 photos = if (photos == null) emptyList() else (0 until photos.length()).map { photos.getString(it) },
                 diagnosisJson = if (o.isNull("diagnosis")) null else o.optString("diagnosis").ifBlank { null },
+                changesJson = if (o.isNull("changes")) null else o.optString("changes").ifBlank { null },
             )
         }
     }

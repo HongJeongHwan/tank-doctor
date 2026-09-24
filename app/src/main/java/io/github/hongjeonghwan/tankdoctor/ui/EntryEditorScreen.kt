@@ -16,7 +16,16 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.input.KeyboardType
+import io.github.hongjeonghwan.tankdoctor.data.FishChange
+import io.github.hongjeonghwan.tankdoctor.data.FishEvent
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -175,6 +184,21 @@ fun EntryEditorScreen(state: UiState, vm: AppViewModel) {
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("${c.emoji} ${c.label}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        if (c == LogCategory.FISH) {
+                            Text(
+                                "들어오거나 나간 생물을 적어 주세요. 환경설정에 등록한 마릿수에 이 기록이 더해져요.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            draft.changes.forEachIndexed { index, change ->
+                                ChangeRow(
+                                    change = change,
+                                    onChange = { vm.setDraftChange(index, it) },
+                                    onRemove = { vm.removeDraftChange(index) },
+                                )
+                            }
+                            TextButton(onClick = vm::addDraftChange) { Text("+ 생물 추가·폐사 줄 넣기") }
+                        }
                         OutlinedTextField(
                             value = draft.notes[c].orEmpty(),
                             onValueChange = { vm.setDraftNote(c, it) },
@@ -228,5 +252,51 @@ fun EntryEditorScreen(state: UiState, vm: AppViewModel) {
             confirmButton = { TextButton(onClick = { vm.deleteEntry(editingId) }) { Text("삭제") } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("취소") } },
         )
+    }
+}
+
+/** One stocking line: which species, how many, and whether it came in or went out. */
+@Composable
+private fun ChangeRow(change: FishChange, onChange: (FishChange) -> Unit, onRemove: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        OutlinedTextField(
+            value = change.name,
+            onValueChange = { onChange(change.copy(name = it.take(30))) },
+            label = { Text("종류") },
+            placeholder = { Text("구피") },
+            singleLine = true,
+            modifier = Modifier.weight(1.2f),
+        )
+        OutlinedTextField(
+            value = if (change.count > 0) change.count.toString() else "",
+            onValueChange = { v -> onChange(change.copy(count = v.filter(Char::isDigit).take(3).toIntOrNull() ?: 0)) },
+            label = { Text("마릿수") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.weight(0.9f),
+        )
+        EventPicker(change.event) { onChange(change.copy(event = it)) }
+        IconButton(onClick = onRemove) {
+            Icon(Icons.Filled.Close, contentDescription = "이 줄 지우기")
+        }
+    }
+}
+
+@Composable
+private fun EventPicker(event: FishEvent, onPick: (FishEvent) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { open = true }) { Text(event.label) }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            FishEvent.entries.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text("${option.label} (${if (option.sign > 0) "+" else "-"})") },
+                    onClick = {
+                        onPick(option)
+                        open = false
+                    },
+                )
+            }
+        }
     }
 }

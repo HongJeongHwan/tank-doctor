@@ -118,11 +118,13 @@ fun LogScreen(state: UiState, vm: AppViewModel) {
                 SummaryCard(
                     entries = state.entries,
                     tankSize = state.tankSize,
-                    fish = state.fish,
+                    fish = state.livingFish,
                     stocking = state.stocking,
                     speciesDir = vm.speciesDir,
+                    diagnoses = state.diagnoses.size,
                     onEditTank = { vm.open(Screen.SETTINGS) },
                     onEditFish = vm::openFishEditor,
+                    onOpenHistory = { vm.open(Screen.HISTORY) },
                 )
             }
             item(key = "diagnose") { DiagnoseCallout(recentCount = state.recentEntries.size) { vm.open(Screen.DIAGNOSE) } }
@@ -178,8 +180,10 @@ private fun SummaryCard(
     fish: List<FishInfo>,
     stocking: Stocking?,
     speciesDir: File,
+    diagnoses: Int,
     onEditTank: () -> Unit,
     onEditFish: () -> Unit,
+    onOpenHistory: () -> Unit,
 ) {
     SectionCard("어항 한눈에 보기") {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -248,7 +252,10 @@ private fun SummaryCard(
         SummaryRow(entries, LogCategory.TEST, "마지막 수질검사", warnAfterDays = 30)
         val lastDiagnosis = entries.firstOrNull { it.category == LogCategory.DIAGNOSIS }
         val d = lastDiagnosis?.diagnosis
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clickable(onClick = onOpenHistory),
+        ) {
             Text("${LogCategory.DIAGNOSIS.emoji}  최근 진단", modifier = Modifier.weight(1f))
             if (lastDiagnosis != null && d != null) {
                 Text(
@@ -256,8 +263,18 @@ private fun SummaryCard(
                     color = d.level.color(),
                     fontWeight = FontWeight.SemiBold,
                 )
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             } else {
                 Text("기록 없음", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (diagnoses > 1) {
+            TextButton(onClick = onOpenHistory, modifier = Modifier.align(Alignment.End)) {
+                Text("진단 기록 ${diagnoses}개 보기 →")
             }
         }
     }
@@ -379,7 +396,7 @@ private fun EntryRow(entry: LogEntry, photoDir: File, onOpen: () -> Unit, onDele
                     }
                 } else {
                     Text(
-                        entry.note.ifBlank { "(내용 없음)" },
+                        entry.summary.ifBlank { "(내용 없음)" },
                         style = MaterialTheme.typography.bodyLarge,
                         maxLines = 4,
                         overflow = TextOverflow.Ellipsis,

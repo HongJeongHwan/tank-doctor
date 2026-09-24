@@ -16,7 +16,9 @@ import io.github.hongjeonghwan.tankdoctor.data.LogEntry
 import io.github.hongjeonghwan.tankdoctor.data.LogStore
 import io.github.hongjeonghwan.tankdoctor.data.SettingsStore
 import android.graphics.BitmapFactory
+import io.github.hongjeonghwan.tankdoctor.data.FishChange
 import io.github.hongjeonghwan.tankdoctor.data.FishInfo
+import io.github.hongjeonghwan.tankdoctor.data.currentFish
 import io.github.hongjeonghwan.tankdoctor.data.FishScan
 import io.github.hongjeonghwan.tankdoctor.data.Stocking
 import io.github.hongjeonghwan.tankdoctor.data.TankSize
@@ -33,7 +35,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
 
-enum class Screen { LOG, EDITOR, DIAGNOSE, RESULT, FISH, SETTINGS }
+enum class Screen { LOG, EDITOR, DIAGNOSE, RESULT, FISH, HISTORY, SETTINGS }
 
 const val MAX_PHOTOS = 5
 const val MAX_FISH_PHOTOS = 3
@@ -56,12 +58,15 @@ data class EntryDraft(
     val date: LocalDate = LocalDate.now(),
     val selected: List<LogCategory> = listOf(LogCategory.WATER),
     val notes: Map<LogCategory, String> = emptyMap(),
+    /** Structured lines for the 물고기 category. */
+    val changes: List<FishChange> = emptyList(),
 )
 
 data class UiState(
     val screen: Screen = Screen.LOG,
     val settingsReturn: Screen = Screen.LOG,
     val fishReturn: Screen = Screen.LOG,
+    val resultReturn: Screen = Screen.LOG,
     // care log
     val entries: List<LogEntry> = emptyList(),
     val filter: LogCategory? = null,
@@ -73,6 +78,8 @@ data class UiState(
     val tankType: TankType = TankType.FRESH,
     val tankSize: TankSize = TankSize(),
     val fish: List<FishInfo> = emptyList(),
+    /** The day [fish] was counted; later 물고기 entries are added on top of it. */
+    val fishAsOf: LocalDate? = null,
     val memo: String = "",
     // fish editor
     val fishDraft: List<FishInfo> = emptyList(),
@@ -97,8 +104,20 @@ data class UiState(
     val isFull: Boolean get() = photos.size >= MAX_PHOTOS
     val recentEntries: List<LogEntry> get() = entries.filter { daysAgo(it.date) <= HISTORY_DAYS }
 
-    /** Density of the saved list, for the log summary. */
-    val stocking: Stocking? get() = Stocking.of(fish, tankSize, tankType)
+    /** Registered count plus every stocking change logged after [fishAsOf]. */
+    val livingFish: List<FishInfo> get() = currentFish(fish, fishAsOf, entries)
+
+    /** Stocking changes counted on top of the registered list. */
+    val fishChangesSinceCount: List<FishChange>
+        get() = entries
+            .filter { it.category == LogCategory.FISH && (fishAsOf == null || it.date.isAfter(fishAsOf)) }
+            .sortedBy { it.date }
+            .flatMap { it.changes }
+
+    val diagnoses: List<LogEntry> get() = entries.filter { it.category == LogCategory.DIAGNOSIS }
+
+    /** Density of what lives in the tank now, for the log summary. */
+    val stocking: Stocking? get() = Stocking.of(livingFish, tankSize, tankType)
 
     /** Density of the list being edited, so the editor updates as rows change. */
     val draftStocking: Stocking? get() = Stocking.of(fishDraft, tankSize, tankType)
@@ -111,7 +130,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val speciesDir: File get() = store.speciesDir
 
     private val _state = MutableStateFlow(
-        UiState(apiKey = settings.apiKey, model = settings.model, tankType = settings.tankType, tankSize = settings.tankSize, fish = settings.fish)
+        UiState(
+            apiKey = settings.apiKey,
+            model = settings.model,
+            tankType = settings.tankType,
+            tankSize = settings.tankSize,
+            fish = settings.fish,
+            fishAsOf = settings.fishAsOf,
+        )
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
 
@@ -146,7 +172,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 scanCrops = emptyList(),
                 error = null,
             )
-            Screen.RESULT -> s.copy(screen = Screen.LOG, result = null, resultPhotos = emptyList(), resultEntryId = null, justSaved = false)
+            Screen.RESULT -> s.copy(
+                screen = s.resultReturn,
+                result = null,
+                resultPhotos = emptyList(),
+                resultEntryId = null,
+                justSaved = false,
+            )
             else -> s.copy(screen = Screen.LOG, error = null)
         }
     }
@@ -165,7 +197,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun editEntry(entry: LogEntry) = _state.update {
         it.copy(
             screen = Screen.EDITOR,
-            draft = EntryDraft(entry.id, entry.date, listOf(entry.category), mapOf(entry.category to entry.note)),
+            draft = EntryDraft(
+                editingId = entry.id,
+                date = entry.date,
+                selected = listOf(entry.category),
+                notes = mapOf(entry.category to entry.note),
+                changes = entry.changes,
+            ),
         )
     }
 
@@ -189,6 +227,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         d.copy(notes = d.notes + (category to if (current.isBlank()) text else "${current.trimEnd()}, $text"))
     }
 
+    fun addDraftChange() = updateDraft { it.copy(changes = it.changes + FishChange("", 0)) }
+
+    fun setDraftChange(index: Int, change: FishChange) = updateDraft { d ->
+        d.copy(changes = d.changes.mapIndexed { i, item -> if (i == index) change else item })
+    }
+
+    fun removeDraftChange(index: Int) = updateDraft { d ->
+        d.copy(changes = d.changes.filterIndexed { i, _ -> i != index })
+    }
+
     private fun updateDraft(transform: (EntryDraft) -> EntryDraft) = _state.update { it.copy(draft = transform(it.draft)) }
 
     fun saveDraft() {
@@ -197,16 +245,27 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val current = _state.value.entries
         val editingId = d.editingId
         val message: String
+        // Stocking lines belong to the 물고기 entry only.
+        fun changesFor(c: LogCategory): String? =
+            if (c == LogCategory.FISH) FishChange.encode(d.changes).takeIf { d.changes.any { ch -> ch.isValid } } else null
         val updated = if (editingId != null) {
             val c = d.selected.first()
             message = "기록을 수정했어요"
-            current.map { if (it.id == editingId) it.copy(date = d.date, category = c, note = d.notes[c].orEmpty().trim()) else it }
+            current.map {
+                if (it.id == editingId) {
+                    it.copy(date = d.date, category = c, note = d.notes[c].orEmpty().trim(), changesJson = changesFor(c))
+                } else {
+                    it
+                }
+            }
         } else {
             val base = newId()
             val n = d.selected.size
             message = if (n > 1) "기록 ${n}개를 저장했어요" else "기록을 저장했어요"
             // Higher id sorts first, so the first-picked category is listed first.
-            current + d.selected.mapIndexed { i, c -> LogEntry(base + (n - 1 - i), d.date, c, d.notes[c].orEmpty().trim()) }
+            current + d.selected.mapIndexed { i, c ->
+                LogEntry(base + (n - 1 - i), d.date, c, d.notes[c].orEmpty().trim(), changesJson = changesFor(c))
+            }
         }
         commit(updated)
         _state.update { it.copy(screen = Screen.LOG, draft = EntryDraft(), toast = message, filter = null) }
@@ -239,7 +298,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             _state.update {
-                it.copy(screen = Screen.RESULT, result = diagnosis, resultPhotos = photos, resultEntryId = entry.id, justSaved = false)
+                it.copy(
+                    screen = Screen.RESULT,
+                    resultReturn = if (it.screen == Screen.RESULT) it.resultReturn else it.screen,
+                    result = diagnosis,
+                    resultPhotos = photos,
+                    resultEntryId = entry.id,
+                    justSaved = false,
+                )
             }
         }
     }
@@ -256,13 +322,33 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun newId(): Long =
         maxOf(System.currentTimeMillis(), (_state.value.entries.maxOfOrNull { it.id } ?: 0L) + 1)
 
+    /**
+     * The population for the prompt: the registered count, the day it was taken, and every
+     * stocking change logged after it. The model is told to trust this over what it can see.
+     */
+    private fun fishText(s: UiState): String {
+        if (s.fish.isEmpty() && s.livingFish.isEmpty()) return ""
+        val asOf = s.fishAsOf?.let { "$it 기준" } ?: "날짜 미상"
+        return buildString {
+            append("사용자가 등록한 목록($asOf): ")
+            append(s.fish.joinToString(", ") { it.label }.ifBlank { "없음" })
+            val changes = s.fishChangesSinceCount
+            if (changes.isNotEmpty()) {
+                append("\n  그 뒤 기록된 변동: ")
+                append(changes.joinToString(", ") { it.label })
+            }
+            append("\n  → 현재 마릿수(앱 계산): ")
+            append(s.livingFish.joinToString(", ") { "${it.name} ${it.count}마리" }.ifBlank { "없음" })
+        }
+    }
+
     /** Recent log as plain lines for the prompt, e.g. "- 9월 12일(어제) [환수] 30% 환수". */
     private fun historyText(entries: List<LogEntry>): String = entries.take(60).joinToString("\n") { e ->
         val whenText = "${e.date.monthValue}월 ${e.date.dayOfMonth}일(${relativeDay(daysAgo(e.date))})"
         val body = if (e.category == LogCategory.DIAGNOSIS) {
             e.diagnosis?.let { "${it.score}점 ${it.level.label} - ${it.headline}" } ?: "진단"
         } else {
-            e.note.ifBlank { "(내용 없음)" }
+            e.summary.ifBlank { "(내용 없음)" }
         }
         "- $whenText [${e.category.label}] $body"
     }
@@ -377,7 +463,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             it.copy(
                 screen = Screen.FISH,
                 fishReturn = if (it.screen == Screen.FISH) it.fishReturn else it.screen,
-                fishDraft = it.fish,
+                fishDraft = it.livingFish,
                 fishPhotos = emptyList(),
                 scanResult = null,
                 scanCrops = emptyList(),
@@ -495,9 +581,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun saveFish() {
         val fish = _state.value.fishDraft.filter { it.isValid }
         settings.fish = fish
+        // This list is the count from today on, so earlier 물고기 entries stop being added to it.
+        settings.fishAsOf = LocalDate.now()
         _state.update {
             it.copy(
                 fish = settings.fish,
+                fishAsOf = settings.fishAsOf,
                 fishDraft = settings.fish,
                 screen = it.fishReturn,
                 fishPhotos = emptyList(),
@@ -529,7 +618,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val result = GeminiClient.diagnose(
                     s.apiKey, s.model, jpegs, s.tankType, s.memo, historyText(s.recentEntries),
                     tankSize = if (s.tankSize.isSet) s.tankSize.label else "",
-                    fish = s.fish.joinToString(", ") { it.label },
+                    fish = fishText(s),
                     stocking = s.stocking?.summary.orEmpty(),
                 )
                 val id = newId()
@@ -548,6 +637,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     it.copy(
                         loading = false,
                         screen = Screen.RESULT,
+                        resultReturn = Screen.LOG,
                         result = result,
                         resultPhotos = s.photos,
                         resultEntryId = id,

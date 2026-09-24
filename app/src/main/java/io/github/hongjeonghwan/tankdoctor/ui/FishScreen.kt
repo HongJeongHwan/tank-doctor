@@ -76,6 +76,7 @@ import io.github.hongjeonghwan.tankdoctor.SpeciesCrop
 import io.github.hongjeonghwan.tankdoctor.data.TankType
 import io.github.hongjeonghwan.tankdoctor.data.trimNumber
 import java.io.File
+import java.time.LocalDate
 
 /** Registers what lives in the tank, by photo or by hand, and shows the resulting density. */
 @Composable
@@ -204,6 +205,16 @@ fun FishScreen(state: UiState, vm: AppViewModel) {
             StockingCard(state.draftStocking, state.tankType) { vm.open(Screen.SETTINGS) }
 
             Text("사는 생물", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                if (state.fishAsOf != null) {
+                    "여기 적은 마릿수가 기준이 돼요. 저장하면 오늘(${LocalDate.now()}) 기준으로 다시 세고, " +
+                        "그 뒤 물고기 기록에 적은 추가·폐사만 더해져요. 지금 기준일은 ${state.fishAsOf}예요."
+                } else {
+                    "여기 적은 마릿수가 기준이 돼요. 저장한 다음 날부터는 물고기 기록에 적은 추가·폐사가 더해져요."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             if (state.fishDraft.isEmpty()) {
                 Text(
                     "아직 등록된 생물이 없어요. 위에서 사진으로 인식하거나 아래에서 직접 추가해 주세요.",

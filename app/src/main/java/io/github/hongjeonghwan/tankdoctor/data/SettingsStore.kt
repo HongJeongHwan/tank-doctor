@@ -1,6 +1,7 @@
 package io.github.hongjeonghwan.tankdoctor.data
 
 import android.content.Context
+import java.time.LocalDate
 
 /** Outer tank dimensions in cm; 0 means not entered. */
 data class TankSize(val width: Int = 0, val depth: Int = 0, val height: Int = 0) {
@@ -32,6 +33,14 @@ class SettingsStore(context: Context) {
     var fish: List<FishInfo>
         get() = FishInfo.decode(prefs.getString("fish", "[]").orEmpty())
         set(value) = prefs.edit().putString("fish", FishInfo.encode(value)).apply()
+
+    /**
+     * The day [fish] was last counted. Stocking changes logged after this day are
+     * added on top of it; earlier ones are already part of the count.
+     */
+    var fishAsOf: LocalDate?
+        get() = prefs.getString("fish_as_of", null)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        set(value) = prefs.edit().putString("fish_as_of", value?.toString()).apply()
 
     var model: String
         get() = prefs.getString("model", null)?.takeIf { id -> MODELS.any { it.id == id } } ?: DEFAULT_MODEL

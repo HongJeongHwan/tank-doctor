@@ -127,7 +127,7 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
 
             Text("사는 생물", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(
-                state.fish.joinToString(" · ") { "${it.name} ${it.count}마리" }
+                state.livingFish.joinToString(" · ") { "${it.name} ${it.count}마리" }
                     .ifBlank { "아직 등록된 생물이 없어요." },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
