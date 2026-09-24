@@ -2,6 +2,7 @@ package io.github.hongjeonghwan.tankdoctor.data
 
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONException
@@ -56,8 +57,27 @@ object GeminiClient {
         FishScan.parse(post(apiKey, model, buildFishRequest(jpegs, tankType)))
     }
 
-    /** Sends one generateContent call and returns the model's text answer. */
-    private fun post(apiKey: String, model: String, request: JSONObject): String {
+    /** Server-side hiccup (5xx): the same request usually works a moment later. */
+    private class BusyException(val friendly: String) : Exception(friendly)
+
+    /** Waits between retries, so a busy model gets three chances in about 7 seconds. */
+    private val RETRY_DELAYS = longArrayOf(1_500, 5_000)
+
+    /** Sends one generateContent call, retrying while the server reports itself busy. */
+    private suspend fun post(apiKey: String, model: String, request: JSONObject): String {
+        var lastBusy = ""
+        repeat(RETRY_DELAYS.size + 1) { attempt ->
+            try {
+                return send(apiKey, model, request)
+            } catch (e: BusyException) {
+                lastBusy = e.friendly
+                if (attempt < RETRY_DELAYS.size) delay(RETRY_DELAYS[attempt])
+            }
+        }
+        throw GeminiException("$lastBusy 설정에서 다른 모델을 골라 보셔도 좋아요.")
+    }
+
+    private fun send(apiKey: String, model: String, request: JSONObject): String {
         val body = request.toString().toByteArray(Charsets.UTF_8)
         val conn = (URL("$BASE_URL$model:generateContent").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -72,6 +92,7 @@ object GeminiClient {
             val code = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            if (code >= 500) throw BusyException(errorMessage(code, text))
             if (code !in 200..299) throw GeminiException(errorMessage(code, text))
             return extractAnswer(text)
         } catch (e: SocketTimeoutException) {
@@ -197,7 +218,7 @@ object GeminiClient {
             code == 429 ->
                 "사용량 한도를 넘었어요. 1분쯤 뒤 다시 시도하거나 설정에서 다른 모델을 골라 주세요."
             code >= 500 ->
-                "Gemini 서버 오류예요($code). 잠시 후 다시 시도해 주세요."
+                "Gemini 서버가 지금 바빠요($code)."
             else -> "요청 실패($code): ${detail.ifBlank { "알 수 없는 오류" }}"
         }
     }
