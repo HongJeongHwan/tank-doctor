@@ -64,6 +64,7 @@ import io.github.hongjeonghwan.tankdoctor.data.LogCategory
 import io.github.hongjeonghwan.tankdoctor.data.LogEntry
 import io.github.hongjeonghwan.tankdoctor.data.TankSize
 import io.github.hongjeonghwan.tankdoctor.data.FishInfo
+import io.github.hongjeonghwan.tankdoctor.data.Stocking
 import io.github.hongjeonghwan.tankdoctor.data.daysAgo
 import io.github.hongjeonghwan.tankdoctor.data.koreanLabel
 import io.github.hongjeonghwan.tankdoctor.data.relativeDay
@@ -112,7 +113,16 @@ fun LogScreen(state: UiState, vm: AppViewModel) {
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 104.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item(key = "summary") { SummaryCard(state.entries, state.tankSize, state.fish) { vm.open(Screen.SETTINGS) } }
+            item(key = "summary") {
+                SummaryCard(
+                    entries = state.entries,
+                    tankSize = state.tankSize,
+                    fish = state.fish,
+                    stocking = state.stocking,
+                    onEditTank = { vm.open(Screen.SETTINGS) },
+                    onEditFish = vm::openFishEditor,
+                )
+            }
             item(key = "diagnose") { DiagnoseCallout(recentCount = state.recentEntries.size) { vm.open(Screen.DIAGNOSE) } }
             item(key = "filter") { FilterRow(state.filter, vm::setFilter) }
 
@@ -160,7 +170,14 @@ fun LogScreen(state: UiState, vm: AppViewModel) {
 }
 
 @Composable
-private fun SummaryCard(entries: List<LogEntry>, tankSize: TankSize, fish: List<FishInfo>, onEditTank: () -> Unit) {
+private fun SummaryCard(
+    entries: List<LogEntry>,
+    tankSize: TankSize,
+    fish: List<FishInfo>,
+    stocking: Stocking?,
+    onEditTank: () -> Unit,
+    onEditFish: () -> Unit,
+) {
     SectionCard("어항 한눈에 보기") {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("📐  어항 크기", modifier = Modifier.weight(1f))
@@ -176,12 +193,33 @@ private fun SummaryCard(entries: List<LogEntry>, tankSize: TankSize, fish: List<
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("🐟  물고기", modifier = Modifier.weight(1f))
+            Text("🐟  사는 생물", modifier = Modifier.weight(1f))
             Text(
                 fish.joinToString(" · ") { "${it.name} ${it.count}마리" }.ifBlank { "등록하기 ›" },
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.clickable(onClick = onEditTank),
+                textAlign = TextAlign.End,
+                modifier = Modifier
+                    .weight(1.4f)
+                    .clickable(onClick = onEditFish),
             )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("🐠  밀집도", modifier = Modifier.weight(1f))
+            if (stocking != null) {
+                Text(
+                    "${stocking.percent}% · ${stocking.level.label}",
+                    color = stocking.level.tone.color(),
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clickable(onClick = onEditFish),
+                )
+            } else {
+                Text(
+                    if (tankSize.isSet) "생물 등록하기 ›" else "어항 크기부터 ›",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clickable(onClick = if (tankSize.isSet) onEditFish else onEditTank),
+                )
+            }
         }
         SummaryRow(entries, LogCategory.WATER, "마지막 환수", warnAfterDays = 14)
         SummaryRow(entries, LogCategory.PLANT, "마지막 수초 작업", warnAfterDays = null)

@@ -110,6 +110,14 @@ fun DiagnoseScreen(state: UiState, vm: AppViewModel) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            state.stocking?.let {
+                Text(
+                    "🐠 사는 생물 ${it.totalCount}마리 · 밀집도 ${it.percent}%(${it.level.label})도 함께 보내요.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             PhotoBox(selected?.preview)
 
             if (state.photos.isNotEmpty()) {

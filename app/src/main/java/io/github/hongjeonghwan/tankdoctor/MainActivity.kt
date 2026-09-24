@@ -11,6 +11,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.hongjeonghwan.tankdoctor.ui.DiagnoseScreen
 import io.github.hongjeonghwan.tankdoctor.ui.EntryEditorScreen
+import io.github.hongjeonghwan.tankdoctor.ui.FishScreen
 import io.github.hongjeonghwan.tankdoctor.ui.LogScreen
 import io.github.hongjeonghwan.tankdoctor.ui.ResultScreen
 import io.github.hongjeonghwan.tankdoctor.ui.SettingsScreen
@@ -39,6 +40,7 @@ fun TankDoctorApp(vm: AppViewModel = viewModel()) {
         Screen.EDITOR -> EntryEditorScreen(state, vm)
         Screen.DIAGNOSE -> DiagnoseScreen(state, vm)
         Screen.RESULT -> state.result?.let { ResultScreen(state, it, vm) } ?: LogScreen(state, vm)
+        Screen.FISH -> FishScreen(state, vm)
         Screen.SETTINGS -> SettingsScreen(state, vm)
     }
 }

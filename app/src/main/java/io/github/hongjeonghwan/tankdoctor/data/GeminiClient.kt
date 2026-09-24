@@ -40,8 +40,25 @@ object GeminiClient {
         history: String,
         tankSize: String,
         fish: String = "",
+        stocking: String = "",
     ): Diagnosis = withContext(Dispatchers.IO) {
-        val body = buildRequest(jpegs, tankType, memo, history, tankSize, fish).toString().toByteArray(Charsets.UTF_8)
+        val request = buildRequest(jpegs, tankType, memo, history, tankSize, fish, stocking)
+        Diagnosis.parse(post(apiKey, model, request))
+    }
+
+    /** Reads species and head counts off the photos so the user does not have to type them. */
+    suspend fun identifyFish(
+        apiKey: String,
+        model: String,
+        jpegs: List<ByteArray>,
+        tankType: TankType,
+    ): FishScan = withContext(Dispatchers.IO) {
+        FishScan.parse(post(apiKey, model, buildFishRequest(jpegs, tankType)))
+    }
+
+    /** Sends one generateContent call and returns the model's text answer. */
+    private fun post(apiKey: String, model: String, request: JSONObject): String {
+        val body = request.toString().toByteArray(Charsets.UTF_8)
         val conn = (URL("$BASE_URL$model:generateContent").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 20_000
@@ -56,7 +73,7 @@ object GeminiClient {
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
             if (code !in 200..299) throw GeminiException(errorMessage(code, text))
-            Diagnosis.parse(extractAnswer(text))
+            return extractAnswer(text)
         } catch (e: SocketTimeoutException) {
             throw GeminiException("응답이 너무 오래 걸려요. 잠시 후 다시 시도해 주세요.")
         } catch (e: IOException) {
@@ -68,14 +85,7 @@ object GeminiClient {
         }
     }
 
-    private fun buildRequest(
-        jpegs: List<ByteArray>,
-        tankType: TankType,
-        memo: String,
-        history: String,
-        tankSize: String,
-        fish: String,
-    ): JSONObject {
+    private fun imageParts(jpegs: List<ByteArray>): JSONArray {
         val parts = JSONArray()
         jpegs.forEachIndexed { i, jpeg ->
             val image = JSONObject()
@@ -85,15 +95,44 @@ object GeminiClient {
             parts.put(JSONObject().put("text", "사진 ${i + 1}"))
             parts.put(JSONObject().put("inlineData", image))
         }
-        parts.put(JSONObject().put("text", userPrompt(tankType, memo, jpegs.size, history, tankSize, fish)))
-        return JSONObject()
-            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", SYSTEM_PROMPT))))
-            .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", parts)))
-            .put(
-                "generationConfig", JSONObject()
-                    .put("responseMimeType", "application/json")
-                    .put("responseSchema", RESPONSE_SCHEMA)
+        return parts
+    }
+
+    private fun envelope(system: String, parts: JSONArray, schema: JSONObject): JSONObject = JSONObject()
+        .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system))))
+        .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", parts)))
+        .put(
+            "generationConfig", JSONObject()
+                .put("responseMimeType", "application/json")
+                .put("responseSchema", schema)
+        )
+
+    private fun buildFishRequest(jpegs: List<ByteArray>, tankType: TankType): JSONObject {
+        val parts = imageParts(jpegs)
+        parts.put(
+            JSONObject().put(
+                "text", buildString {
+                    append("어항 종류: ${tankType.promptLabel}\n")
+                    append("사진 ${jpegs.size}장은 모두 같은 어항입니다. ")
+                    append("사진에 보이는 생물을 종류별로 구분해서 마릿수를 세어 주세요.")
+                }
             )
+        )
+        return envelope(FISH_SYSTEM_PROMPT, parts, FISH_SCHEMA)
+    }
+
+    private fun buildRequest(
+        jpegs: List<ByteArray>,
+        tankType: TankType,
+        memo: String,
+        history: String,
+        tankSize: String,
+        fish: String,
+        stocking: String,
+    ): JSONObject {
+        val parts = imageParts(jpegs)
+        parts.put(JSONObject().put("text", userPrompt(tankType, memo, jpegs.size, history, tankSize, fish, stocking)))
+        return envelope(SYSTEM_PROMPT, parts, RESPONSE_SCHEMA)
     }
 
     private fun userPrompt(
@@ -103,10 +142,12 @@ object GeminiClient {
         history: String,
         tankSize: String,
         fish: String,
+        stocking: String,
     ): String = buildString {
         append("어항 종류: ${tankType.promptLabel}\n")
         append("어항 크기: ${tankSize.ifBlank { "모름" }}\n")
         append("현재 물고기: ${fish.ifBlank { "정보 없음" }}\n")
+        if (stocking.isNotBlank()) append("사육 밀집도(앱 계산): $stocking\n")
         append("오늘 날짜: ${java.time.LocalDate.now()}\n")
         if (history.isNotBlank()) {
             append("\n## 최근 30일 관리 기록 (최신순)\n")
@@ -184,6 +225,9 @@ object GeminiClient {
         - 어항 크기(리터)를 알면 보이는 물고기 수·크기와 비교해 과밀 여부를 판단하고,
           환수량·약품·첨가제 양을 "약 20L(30%) 환수"처럼 리터 기준으로 구체적으로 안내하세요.
           표시된 리터는 외부 치수 기준이라 실제 물은 그보다 10~20% 적다는 점을 감안하세요.
+        - "사육 밀집도(앱 계산)"가 주어지면 그 수치를 그대로 인용하지 말고, 사진에서 센 개체 수와 맞는지 먼저 확인하세요.
+          등록된 목록보다 사진에 확실히 더 많거나 적게 보이면 그 차이를 summary에 알려 주세요.
+          밀집도가 100%를 넘으면 여과·환수 주기를 어떻게 올려야 하는지 구체적으로 안내하세요.
         - 이전 AI 진단 기록이 있으면 그때보다 나아졌는지 나빠졌는지 summary에 짧게 언급하세요.
         - 암모니아·아질산·pH·수온처럼 사진으로 알 수 없는 것은 단정하지 말고 recommendedTests에 검사를 권하세요.
         - 해결책(solutions)은 초보자도 바로 따라 할 수 있게 구체적으로 쓰세요. (예: "물의 30%를 수온 맞춘 물로 환수")
@@ -235,5 +279,61 @@ object GeminiClient {
                 "recommendedTests" to arr(str()),
             )
         )
+    }
+
+    private val FISH_SYSTEM_PROMPT = """
+        당신은 관상어 종 동정(identification) 전문가입니다.
+        사용자가 보낸 어항 사진에서 안에 사는 생물을 종류별로 구분하고 마릿수를 세세요.
+
+        규칙:
+        - 물고기뿐 아니라 새우(생이·체리새우 등), 달팽이, 그 밖의 생물도 모두 찾으세요.
+        - kind는 FISH(물고기) / SHRIMP(새우) / SNAIL(달팽이) / OTHER(그 외) 중 하나로 정하세요.
+        - name은 한국 수족관에서 흔히 쓰는 한글 이름으로 쓰세요. (예: 구피, 네온테트라, 코리도라스, 체리새우)
+          품종까지 확실하면 "구피(턱시도)"처럼 괄호로 덧붙이세요.
+        - count는 사진에서 실제로 센 개체 수입니다. 사진이 여러 장이면 같은 개체를 두 번 세지 마세요.
+          여러 장에 같은 무리가 보이면 가장 많이 보인 사진의 수를 기준으로 하세요.
+        - 수초 뒤나 가장자리에 가려 정확히 셀 수 없으면 보이는 만큼만 세고, note에 "더 있을 수 있어요"라고 적으세요.
+        - adultSizeCm은 그 종이 다 컸을 때의 몸길이(꼬리 제외, cm)입니다. 종 도감 기준의 일반적인 값을 쓰세요.
+          예: 구피 4, 네온테트라 3.5, 코리도라스 6, 베타 6, 체리새우 3, 골든애플스네일 5.
+        - confidence는 종을 얼마나 확신하는지입니다. HIGH / MEDIUM / LOW.
+          비슷한 종이 많아 헷갈리면 LOW로 두고 note에 후보를 적으세요. (예: "카디널테트라일 수도 있어요")
+        - 확실하지 않다고 목록에서 빼지는 마세요. 대신 confidence를 낮추세요.
+        - 어항 사진이 아니거나 생물이 안 보이면 isAquarium=false, species는 빈 배열로 두고 note에 이유를 쓰세요.
+        - note는 짧은 한국어 존댓말 한두 문장.
+    """.trimIndent()
+
+    private val FISH_SCHEMA: JSONObject by lazy {
+        fun str() = JSONObject().put("type", "STRING")
+        fun strEnum(vararg values: String) = str().put("enum", JSONArray(values.toList()))
+        val species = JSONObject()
+            .put("type", "OBJECT")
+            .put(
+                "properties", JSONObject(
+                    linkedMapOf(
+                        "name" to str(),
+                        "kind" to strEnum("FISH", "SHRIMP", "SNAIL", "OTHER"),
+                        "count" to JSONObject().put("type", "INTEGER"),
+                        "adultSizeCm" to JSONObject().put("type", "NUMBER"),
+                        "confidence" to strEnum("HIGH", "MEDIUM", "LOW"),
+                        "note" to str(),
+                    )
+                )
+            )
+            .put("required", JSONArray(listOf("name", "kind", "count", "adultSizeCm", "confidence", "note")))
+            .put("propertyOrdering", JSONArray(listOf("name", "kind", "count", "adultSizeCm", "confidence", "note")))
+
+        JSONObject()
+            .put("type", "OBJECT")
+            .put(
+                "properties", JSONObject(
+                    linkedMapOf(
+                        "isAquarium" to JSONObject().put("type", "BOOLEAN"),
+                        "species" to JSONObject().put("type", "ARRAY").put("items", species),
+                        "note" to str(),
+                    )
+                )
+            )
+            .put("required", JSONArray(listOf("isAquarium", "species", "note")))
+            .put("propertyOrdering", JSONArray(listOf("isAquarium", "species", "note")))
     }
 }

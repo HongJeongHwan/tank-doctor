@@ -38,7 +38,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.ui.text.font.FontStyle
 import io.github.hongjeonghwan.tankdoctor.Photo
+import io.github.hongjeonghwan.tankdoctor.data.Stocking
+import io.github.hongjeonghwan.tankdoctor.data.TankType
+import io.github.hongjeonghwan.tankdoctor.data.trimNumber
+import io.github.hongjeonghwan.tankdoctor.ui.theme.color
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -191,6 +198,67 @@ fun NoticeCard(title: String, body: String, actionLabel: String, onAction: () ->
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Text(body, style = MaterialTheme.typography.bodyMedium)
             TextButton(onClick = onAction, modifier = Modifier.align(Alignment.End)) { Text(actionLabel) }
+        }
+    }
+}
+
+/**
+ * Stocking density: how much life the tank carries against what its water can take.
+ * [stocking] is null until both the tank size and at least one species are known.
+ */
+@Composable
+fun StockingCard(stocking: Stocking?, tankType: TankType, onFix: () -> Unit) {
+    SectionCard("🐠  사육 밀집도") {
+        if (stocking == null) {
+            Text(
+                "어항 크기와 물고기를 모두 등록하면 밀집도를 계산해 드려요.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = onFix, modifier = Modifier.align(Alignment.End)) { Text("등록하러 가기 →") }
+            return@SectionCard
+        }
+        val tint = stocking.level.tone.color()
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "${stocking.totalCount}마리",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            Badge("${stocking.level.label} ${stocking.percent}%", tint)
+        }
+        LinearProgressIndicator(
+            progress = { (stocking.percent / 100f).coerceIn(0f, 1f) },
+            color = tint,
+            trackColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(10.dp)
+                .clip(RoundedCornerShape(5.dp)),
+        )
+        Text(
+            if (stocking.headroomCm > 0) {
+                "${tankType.label} 권장 상한까지 체장 약 ${trimNumber(stocking.headroomCm)}cm 남았어요."
+            } else {
+                "${tankType.label} 권장 상한을 넘었어요. 환수를 자주 하거나 마릿수를 줄이는 게 좋아요."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = tint,
+        )
+        Text(
+            stocking.summary,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (stocking.estimated) {
+            Text(
+                "성어 크기를 비워 둔 종은 기본값으로 계산했어요. 크기를 채우면 더 정확해져요.",
+                style = MaterialTheme.typography.bodySmall,
+                fontStyle = FontStyle.Italic,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

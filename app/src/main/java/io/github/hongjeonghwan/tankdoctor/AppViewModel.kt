@@ -16,6 +16,8 @@ import io.github.hongjeonghwan.tankdoctor.data.LogEntry
 import io.github.hongjeonghwan.tankdoctor.data.LogStore
 import io.github.hongjeonghwan.tankdoctor.data.SettingsStore
 import io.github.hongjeonghwan.tankdoctor.data.FishInfo
+import io.github.hongjeonghwan.tankdoctor.data.FishScan
+import io.github.hongjeonghwan.tankdoctor.data.Stocking
 import io.github.hongjeonghwan.tankdoctor.data.TankSize
 import io.github.hongjeonghwan.tankdoctor.data.TankType
 import io.github.hongjeonghwan.tankdoctor.data.daysAgo
@@ -30,10 +32,14 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
 
-enum class Screen { LOG, EDITOR, DIAGNOSE, RESULT, SETTINGS }
+enum class Screen { LOG, EDITOR, DIAGNOSE, RESULT, FISH, SETTINGS }
 
 const val MAX_PHOTOS = 5
+const val MAX_FISH_PHOTOS = 3
 const val HISTORY_DAYS = 30L
+
+/** Which screen a camera capture or gallery pick belongs to. */
+private enum class PhotoTarget { DIAGNOSE, FISH }
 
 class Photo(val id: Long, val preview: ImageBitmap, val jpeg: ByteArray)
 
@@ -51,6 +57,7 @@ data class EntryDraft(
 data class UiState(
     val screen: Screen = Screen.LOG,
     val settingsReturn: Screen = Screen.LOG,
+    val fishReturn: Screen = Screen.LOG,
     // care log
     val entries: List<LogEntry> = emptyList(),
     val filter: LogCategory? = null,
@@ -63,6 +70,11 @@ data class UiState(
     val tankSize: TankSize = TankSize(),
     val fish: List<FishInfo> = emptyList(),
     val memo: String = "",
+    // fish editor
+    val fishDraft: List<FishInfo> = emptyList(),
+    val fishPhotos: List<Photo> = emptyList(),
+    val scanning: Boolean = false,
+    val scanResult: FishScan? = null,
     val loading: Boolean = false,
     // diagnosis output
     val result: Diagnosis? = null,
@@ -78,6 +90,12 @@ data class UiState(
     val selectedPhoto: Photo? get() = photos.firstOrNull { it.id == selectedId } ?: photos.lastOrNull()
     val isFull: Boolean get() = photos.size >= MAX_PHOTOS
     val recentEntries: List<LogEntry> get() = entries.filter { daysAgo(it.date) <= HISTORY_DAYS }
+
+    /** Density of the saved list, for the log summary. */
+    val stocking: Stocking? get() = Stocking.of(fish, tankSize, tankType)
+
+    /** Density of the list being edited, so the editor updates as rows change. */
+    val draftStocking: Stocking? get() = Stocking.of(fishDraft, tankSize, tankType)
 }
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -91,6 +109,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private var pendingCapture: Uri? = null
+    private var pendingTarget = PhotoTarget.DIAGNOSE
     private var nextPhotoId = 0L
 
     init {
@@ -113,6 +132,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun back() = _state.update { s ->
         when (s.screen) {
             Screen.SETTINGS -> s.copy(screen = s.settingsReturn, settingsNotice = null)
+            Screen.FISH -> s.copy(screen = s.fishReturn, fishPhotos = emptyList(), scanResult = null, error = null)
             Screen.RESULT -> s.copy(screen = Screen.LOG, result = null, resultPhotos = emptyList(), resultEntryId = null, justSaved = false)
             else -> s.copy(screen = Screen.LOG, error = null)
         }
@@ -236,19 +256,47 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- diagnosis input ----------
 
-    fun newCaptureUri(): Uri {
+    fun newCaptureUri(): Uri = newCaptureUri(PhotoTarget.DIAGNOSE)
+
+    fun newFishCaptureUri(): Uri = newCaptureUri(PhotoTarget.FISH)
+
+    private fun newCaptureUri(target: PhotoTarget): Uri {
         val app = getApplication<Application>()
         val dir = File(app.cacheDir, "images").apply { mkdirs() }
         // Earlier captures are already decoded into memory, so the files can go.
         dir.listFiles()?.forEach { it.delete() }
         val file = File(dir, "tank_${System.currentTimeMillis()}.jpg")
+        pendingTarget = target
         return FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
             .also { pendingCapture = it }
     }
 
     fun onCaptureResult(success: Boolean) {
         val uri = pendingCapture
-        if (success && uri != null) addPhotos(listOf(uri))
+        if (!success || uri == null) return
+        when (pendingTarget) {
+            PhotoTarget.DIAGNOSE -> addPhotos(listOf(uri))
+            PhotoTarget.FISH -> addFishPhotos(listOf(uri))
+        }
+    }
+
+    /** Decodes picked images and reports what could not be loaded. */
+    private suspend fun decodePhotos(uris: List<Uri>, room: Int, max: Int): Pair<List<Photo>, String?> {
+        val picked = uris.take(room)
+        val results = withContext(Dispatchers.IO) {
+            picked.map { uri -> runCatching { ImageUtil.load(getApplication(), uri) } }
+        }
+        val photos = results.mapNotNull { it.getOrNull() }
+            .map { Photo(nextPhotoId++, it.bitmap.asImageBitmap(), it.jpeg) }
+        val failures = results.mapNotNull { it.exceptionOrNull() }
+        val skipped = uris.size - picked.size
+        val message = listOfNotNull(
+            failures.firstOrNull()?.let { e ->
+                "사진 ${failures.size}장을 불러오지 못했어요. (${e.message ?: e.javaClass.simpleName})"
+            },
+            if (skipped > 0) "최대 ${max}장까지라 ${skipped}장은 빠졌어요." else null,
+        ).joinToString(" ").ifBlank { null }
+        return photos to message
     }
 
     fun addPhotos(uris: List<Uri>) {
@@ -258,21 +306,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             showError("사진은 최대 ${MAX_PHOTOS}장까지 넣을 수 있어요.")
             return
         }
-        val picked = uris.take(room)
         viewModelScope.launch {
-            val results = withContext(Dispatchers.IO) {
-                picked.map { uri -> runCatching { ImageUtil.load(getApplication(), uri) } }
-            }
-            val photos = results.mapNotNull { it.getOrNull() }
-                .map { Photo(nextPhotoId++, it.bitmap.asImageBitmap(), it.jpeg) }
-            val failures = results.mapNotNull { it.exceptionOrNull() }
-            val skipped = uris.size - picked.size
-            val message = listOfNotNull(
-                failures.firstOrNull()?.let { e ->
-                    "사진 ${failures.size}장을 불러오지 못했어요. (${e.message ?: e.javaClass.simpleName})"
-                },
-                if (skipped > 0) "최대 ${MAX_PHOTOS}장까지라 ${skipped}장은 빠졌어요." else null,
-            ).joinToString(" ").ifBlank { null }
+            val (photos, message) = decodePhotos(uris, room, MAX_PHOTOS)
             _state.update { s ->
                 s.copy(
                     photos = (s.photos + photos).take(MAX_PHOTOS),
@@ -303,20 +338,123 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun dismissError() = _state.update { it.copy(error = null) }
 
-    fun saveSettings(apiKey: String, model: String, tankSize: TankSize, fish: List<FishInfo>) {
+    fun saveSettings(apiKey: String, model: String, tankSize: TankSize) {
         settings.apiKey = apiKey.trim()
         settings.model = model
         settings.tankSize = tankSize
-        settings.fish = fish
         _state.update {
             it.copy(
                 apiKey = settings.apiKey,
                 model = settings.model,
                 tankSize = tankSize,
-                fish = settings.fish,
                 screen = it.settingsReturn,
                 settingsNotice = null,
                 error = null,
+            )
+        }
+    }
+
+    // ---------- fish ----------
+
+    fun openFishEditor() = _state.update {
+        it.copy(
+            screen = Screen.FISH,
+            fishReturn = if (it.screen == Screen.FISH) it.fishReturn else it.screen,
+            fishDraft = it.fish,
+            fishPhotos = emptyList(),
+            scanResult = null,
+            error = null,
+        )
+    }
+
+    fun setFishRow(index: Int, fish: FishInfo) = _state.update { s ->
+        s.copy(fishDraft = s.fishDraft.mapIndexed { i, item -> if (i == index) fish else item })
+    }
+
+    fun addFishRow() = _state.update { it.copy(fishDraft = it.fishDraft + FishInfo("", 0)) }
+
+    fun removeFishRow(index: Int) = _state.update { s ->
+        s.copy(fishDraft = s.fishDraft.filterIndexed { i, _ -> i != index })
+    }
+
+    fun addFishPhotos(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        val room = MAX_FISH_PHOTOS - _state.value.fishPhotos.size
+        if (room <= 0) {
+            showError("사진은 최대 ${MAX_FISH_PHOTOS}장까지 넣을 수 있어요.")
+            return
+        }
+        viewModelScope.launch {
+            val (photos, message) = decodePhotos(uris, room, MAX_FISH_PHOTOS)
+            _state.update { s ->
+                s.copy(fishPhotos = (s.fishPhotos + photos).take(MAX_FISH_PHOTOS), error = message)
+            }
+        }
+    }
+
+    fun removeFishPhoto(id: Long) = _state.update { s ->
+        s.copy(fishPhotos = s.fishPhotos.filterNot { it.id == id })
+    }
+
+    /** Asks Gemini which species are in the photos and how many of each. */
+    fun scanFish() {
+        val s = _state.value
+        if (s.apiKey.isBlank()) {
+            _state.update {
+                it.copy(
+                    screen = Screen.SETTINGS,
+                    settingsReturn = Screen.FISH,
+                    settingsNotice = "사진으로 인식하려면 먼저 Gemini API 키를 입력해 주세요.",
+                )
+            }
+            return
+        }
+        if (s.fishPhotos.isEmpty() || s.scanning) return
+        _state.update { it.copy(scanning = true, error = null) }
+        viewModelScope.launch {
+            try {
+                val scan = GeminiClient.identifyFish(s.apiKey, s.model, s.fishPhotos.map { it.jpeg }, s.tankType)
+                when {
+                    !scan.isAquarium || scan.species.isEmpty() -> _state.update {
+                        it.copy(
+                            scanning = false,
+                            error = scan.note.ifBlank { "사진에서 생물을 찾지 못했어요. 물고기가 잘 보이게 다시 찍어 주세요." },
+                        )
+                    }
+                    else -> _state.update { it.copy(scanning = false, scanResult = scan) }
+                }
+            } catch (e: GeminiException) {
+                _state.update { it.copy(scanning = false, error = e.message) }
+            } catch (e: Exception) {
+                _state.update { it.copy(scanning = false, error = "알 수 없는 오류: ${e.message}") }
+            }
+        }
+    }
+
+    /** [replace] swaps the whole list for the scan; otherwise counts are merged into it. */
+    fun applyScan(replace: Boolean) = _state.update { s ->
+        val scanned = s.scanResult?.fish ?: return@update s
+        s.copy(
+            fishDraft = if (replace) scanned else FishInfo.merge(s.fishDraft.filter { it.isValid }, scanned),
+            scanResult = null,
+            fishPhotos = emptyList(),
+        )
+    }
+
+    fun dismissScan() = _state.update { it.copy(scanResult = null) }
+
+    fun saveFish() {
+        val fish = _state.value.fishDraft.filter { it.isValid }
+        settings.fish = fish
+        _state.update {
+            it.copy(
+                fish = settings.fish,
+                fishDraft = settings.fish,
+                screen = it.fishReturn,
+                fishPhotos = emptyList(),
+                scanResult = null,
+                error = null,
+                toast = if (fish.isEmpty()) "물고기 목록을 비웠어요" else "물고기 ${fish.sumOf { f -> f.count }}마리를 저장했어요",
             )
         }
     }
@@ -341,7 +479,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val result = GeminiClient.diagnose(
                     s.apiKey, s.model, jpegs, s.tankType, s.memo, historyText(s.recentEntries),
                     tankSize = if (s.tankSize.isSet) s.tankSize.label else "",
-                    fish = s.fish.joinToString(", ") { "${it.name} ${it.count}마리" },
+                    fish = s.fish.joinToString(", ") { it.label },
+                    stocking = s.stocking?.summary.orEmpty(),
                 )
                 val id = newId()
                 val names = withContext(Dispatchers.IO) { store.savePhotos(id, jpegs) }
