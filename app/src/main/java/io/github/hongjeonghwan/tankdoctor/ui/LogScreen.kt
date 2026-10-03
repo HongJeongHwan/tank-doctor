@@ -66,6 +66,10 @@ import io.github.hongjeonghwan.tankdoctor.data.LogEntry
 import io.github.hongjeonghwan.tankdoctor.data.TankSize
 import io.github.hongjeonghwan.tankdoctor.data.FishInfo
 import io.github.hongjeonghwan.tankdoctor.data.Stocking
+import io.github.hongjeonghwan.tankdoctor.data.WaterSchedule
+import io.github.hongjeonghwan.tankdoctor.data.dueLabel
+import io.github.hongjeonghwan.tankdoctor.data.lastWaterChange
+import java.time.LocalDate
 import io.github.hongjeonghwan.tankdoctor.data.daysAgo
 import io.github.hongjeonghwan.tankdoctor.data.koreanLabel
 import io.github.hongjeonghwan.tankdoctor.data.relativeDay
@@ -120,6 +124,7 @@ fun LogScreen(state: UiState, vm: AppViewModel) {
                     tankSize = state.tankSize,
                     fish = state.livingFish,
                     stocking = state.stocking,
+                    water = state.waterSchedule,
                     speciesDir = vm.speciesDir,
                     diagnoses = state.diagnoses.size,
                     onEditTank = { vm.open(Screen.SETTINGS) },
@@ -179,6 +184,7 @@ private fun SummaryCard(
     tankSize: TankSize,
     fish: List<FishInfo>,
     stocking: Stocking?,
+    water: WaterSchedule,
     speciesDir: File,
     diagnoses: Int,
     onEditTank: () -> Unit,
@@ -247,7 +253,20 @@ private fun SummaryCard(
                 )
             }
         }
-        SummaryRow(entries, LogCategory.WATER, "마지막 환수", warnAfterDays = 14)
+        SummaryRow(entries, LogCategory.WATER, "마지막 환수", warnAfterDays = water.intervalDays.takeIf { water.isSet } ?: 14)
+        val due = water.dueDate(lastWaterChange(entries))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable(onClick = onEditTank)) {
+            Text("⏰  다음 환수", modifier = Modifier.weight(1f))
+            if (due != null) {
+                Text(
+                    "${due.monthValue}월 ${due.dayOfMonth}일 · ${dueLabel(due)}${if (water.notify) " 🔔" else ""}",
+                    color = if (due.isAfter(LocalDate.now())) MaterialTheme.colorScheme.onSurface else Level.CAUTION.color(),
+                    fontWeight = FontWeight.SemiBold,
+                )
+            } else {
+                Text("주기 정하기 ›", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+            }
+        }
         SummaryRow(entries, LogCategory.PLANT, "마지막 수초 작업", warnAfterDays = null)
         SummaryRow(entries, LogCategory.TEST, "마지막 수질검사", warnAfterDays = 30)
         val lastDiagnosis = entries.firstOrNull { it.category == LogCategory.DIAGNOSIS }

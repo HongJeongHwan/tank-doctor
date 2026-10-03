@@ -23,6 +23,9 @@ import io.github.hongjeonghwan.tankdoctor.data.FishScan
 import io.github.hongjeonghwan.tankdoctor.data.Stocking
 import io.github.hongjeonghwan.tankdoctor.data.TankSize
 import io.github.hongjeonghwan.tankdoctor.data.TankType
+import io.github.hongjeonghwan.tankdoctor.data.WaterReminder
+import io.github.hongjeonghwan.tankdoctor.data.WaterSchedule
+import io.github.hongjeonghwan.tankdoctor.data.lastWaterChange
 import io.github.hongjeonghwan.tankdoctor.data.daysAgo
 import io.github.hongjeonghwan.tankdoctor.data.relativeDay
 import kotlinx.coroutines.Dispatchers
@@ -77,6 +80,7 @@ data class UiState(
     val selectedId: Long? = null,
     val tankType: TankType = TankType.FRESH,
     val tankSize: TankSize = TankSize(),
+    val waterSchedule: WaterSchedule = WaterSchedule(),
     val fish: List<FishInfo> = emptyList(),
     /** The day [fish] was counted; later 물고기 entries are added on top of it. */
     val fishAsOf: LocalDate? = null,
@@ -135,6 +139,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             model = settings.model,
             tankType = settings.tankType,
             tankSize = settings.tankSize,
+            waterSchedule = settings.waterSchedule,
             fish = settings.fish,
             fishAsOf = settings.fishAsOf,
         )
@@ -149,6 +154,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val loaded = withContext(Dispatchers.IO) { store.load() }
             _state.update { it.copy(entries = sorted(loaded)) }
+            rescheduleWater()
         }
     }
 
@@ -314,6 +320,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val list = sorted(entries)
         _state.update { it.copy(entries = list) }
         store.saveAsync(list)
+        rescheduleWater()
+    }
+
+    /** Moves the reminder whenever the schedule or the last 환수 entry may have changed. */
+    private fun rescheduleWater() {
+        val s = _state.value
+        WaterReminder.schedule(getApplication(), s.waterSchedule, lastWaterChange(s.entries))
     }
 
     private fun sorted(entries: List<LogEntry>) =
@@ -437,20 +450,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun dismissError() = _state.update { it.copy(error = null) }
 
-    fun saveSettings(apiKey: String, model: String, tankSize: TankSize) {
+    fun saveSettings(apiKey: String, model: String, tankSize: TankSize, water: WaterSchedule) {
         settings.apiKey = apiKey.trim()
         settings.model = model
         settings.tankSize = tankSize
+        settings.waterSchedule = water
         _state.update {
             it.copy(
                 apiKey = settings.apiKey,
                 model = settings.model,
                 tankSize = tankSize,
+                waterSchedule = water,
                 screen = it.settingsReturn,
                 settingsNotice = null,
                 error = null,
             )
         }
+        rescheduleWater()
     }
 
     // ---------- fish ----------

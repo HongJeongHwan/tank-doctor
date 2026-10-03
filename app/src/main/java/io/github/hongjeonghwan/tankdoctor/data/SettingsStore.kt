@@ -42,6 +42,18 @@ class SettingsStore(context: Context) {
         get() = prefs.getString("fish_as_of", null)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
         set(value) = prefs.edit().putString("fish_as_of", value?.toString()).apply()
 
+    var waterSchedule: WaterSchedule
+        get() = WaterSchedule(
+            prefs.getInt("water_days", 0),
+            prefs.getBoolean("water_notify", false),
+            prefs.getInt("water_minute", WaterSchedule.DEFAULT_MINUTE),
+        )
+        set(value) = prefs.edit()
+            .putInt("water_days", value.intervalDays)
+            .putBoolean("water_notify", value.notify)
+            .putInt("water_minute", value.minuteOfDay)
+            .apply()
+
     var model: String
         get() = prefs.getString("model", null)?.takeIf { id -> MODELS.any { it.id == id } } ?: DEFAULT_MODEL
         set(value) = prefs.edit().putString("model", value).apply()
