@@ -68,6 +68,7 @@ import io.github.hongjeonghwan.tankdoctor.data.WaterSchedule
 import io.github.hongjeonghwan.tankdoctor.data.dueLabel
 import io.github.hongjeonghwan.tankdoctor.data.koreanLabel
 import io.github.hongjeonghwan.tankdoctor.data.lastWaterChange
+import io.github.hongjeonghwan.tankdoctor.data.minuteLabel
 import io.github.hongjeonghwan.tankdoctor.ui.theme.color
 
 @Composable
@@ -82,10 +83,12 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
     val size = TankSize(width.toIntOrNull() ?: 0, depth.toIntOrNull() ?: 0, height.toIntOrNull() ?: 0)
     var waterDays by rememberSaveable { mutableStateOf(state.waterSchedule.intervalDays.takeIf { it > 0 }?.toString().orEmpty()) }
     var waterNotify by rememberSaveable { mutableStateOf(state.waterSchedule.notify) }
-    var waterMinute by rememberSaveable { mutableStateOf(state.waterSchedule.minuteOfDay) }
-    var pickingTime by rememberSaveable { mutableStateOf(false) }
+    var weekdayMinute by rememberSaveable { mutableStateOf(state.waterSchedule.weekdayMinute) }
+    var holidayMinute by rememberSaveable { mutableStateOf(state.waterSchedule.holidayMinute) }
+    /** Which time the picker edits: true for 주말·공휴일, false for 평일, null when closed. */
+    var pickingHoliday by rememberSaveable { mutableStateOf<Boolean?>(null) }
     var notifyDenied by rememberSaveable { mutableStateOf(false) }
-    val water = WaterSchedule(waterDays.toIntOrNull() ?: 0, waterNotify, waterMinute)
+    val water = WaterSchedule(waterDays.toIntOrNull() ?: 0, waterNotify, weekdayMinute, holidayMinute)
     val context = LocalContext.current
     val askNotify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         waterNotify = granted
@@ -188,7 +191,7 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
                 Column(Modifier.weight(1f)) {
                     Text("환수 알림", style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        if (water.isSet) "예정일 ${water.timeLabel}에 알려주고, 기록할 때까지 매일 다시 알려줘요."
+                        if (water.isSet) "예정일에 알려주고, 기록할 때까지 매일 다시 알려줘요."
                         else "주기를 먼저 정해 주세요.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -207,9 +210,19 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
                 )
             }
             if (waterNotify && water.isSet) {
-                OutlinedButton(onClick = { pickingTime = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("알림 시각 · ${water.timeLabel}")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { pickingHoliday = false }, modifier = Modifier.weight(1f)) {
+                        Text("평일 · ${minuteLabel(weekdayMinute)}")
+                    }
+                    OutlinedButton(onClick = { pickingHoliday = true }, modifier = Modifier.weight(1f)) {
+                        Text("휴일 · ${minuteLabel(holidayMinute)}")
+                    }
                 }
+                Text(
+                    "휴일은 토·일요일과 공휴일(대체공휴일 포함)이에요.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             if (notifyDenied) {
                 Text(
@@ -333,19 +346,21 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
         }
     }
 
-    if (pickingTime) {
-        val picker = rememberTimePickerState(waterMinute / 60, waterMinute % 60, is24Hour = false)
+    pickingHoliday?.let { holiday ->
+        val current = if (holiday) holidayMinute else weekdayMinute
+        val picker = rememberTimePickerState(current / 60, current % 60, is24Hour = false)
         AlertDialog(
-            onDismissRequest = { pickingTime = false },
-            title = { Text("알림 시각") },
+            onDismissRequest = { pickingHoliday = null },
+            title = { Text(if (holiday) "휴일 알림 시각" else "평일 알림 시각") },
             text = { TimePicker(state = picker) },
             confirmButton = {
                 TextButton(onClick = {
-                    waterMinute = picker.hour * 60 + picker.minute
-                    pickingTime = false
+                    val picked = picker.hour * 60 + picker.minute
+                    if (holiday) holidayMinute = picked else weekdayMinute = picked
+                    pickingHoliday = null
                 }) { Text("확인") }
             },
-            dismissButton = { TextButton(onClick = { pickingTime = false }) { Text("취소") } },
+            dismissButton = { TextButton(onClick = { pickingHoliday = null }) { Text("취소") } },
         )
     }
 }

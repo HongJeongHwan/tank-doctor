@@ -46,12 +46,14 @@ class SettingsStore(context: Context) {
         get() = WaterSchedule(
             prefs.getInt("water_days", 0),
             prefs.getBoolean("water_notify", false),
-            prefs.getInt("water_minute", WaterSchedule.DEFAULT_MINUTE),
+            prefs.getInt("water_minute", WaterSchedule.DEFAULT_WEEKDAY_MINUTE),
+            prefs.getInt("water_holiday_minute", WaterSchedule.DEFAULT_HOLIDAY_MINUTE),
         )
         set(value) = prefs.edit()
             .putInt("water_days", value.intervalDays)
             .putBoolean("water_notify", value.notify)
-            .putInt("water_minute", value.minuteOfDay)
+            .putInt("water_minute", value.weekdayMinute)
+            .putInt("water_holiday_minute", value.holidayMinute)
             .apply()
 
     /** A release the user chose "나중에" for; it is not offered again on launch. */
