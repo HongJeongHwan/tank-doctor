@@ -27,27 +27,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -67,7 +60,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -94,18 +86,19 @@ import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 
+/** How many entries the home screen lists before pointing at the full log. */
+private const val HOME_RECENT = 5
+
 /** Water-test entries older than this read as due. */
 private const val TEST_DUE_DAYS = 30
 
 @Composable
 fun LogScreen(state: UiState, vm: AppViewModel) {
-    val visible = state.entries.filter { state.filter == null || it.category == state.filter }
-    val grouped = visible.groupBy { it.date }
     val listState = rememberLazyListState()
     val snackbar = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<LogEntry?>(null) }
 
-    // After a save/delete: jump to the first log item (after banner, hero, tiles, callout, filters) and confirm.
+    // After a save/delete: jump to 최근 기록 (after banner, hero, tiles, callout) and confirm.
     LaunchedEffect(state.toast) {
         val message = state.toast ?: return@LaunchedEffect
         listState.animateScrollToItem(if (state.update != null) 5 else 4)
@@ -118,7 +111,7 @@ fun LogScreen(state: UiState, vm: AppViewModel) {
         topBar = { HomeHeader(onSettings = { vm.open(Screen.SETTINGS) }) },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = { vm.startNewEntry(state.filter?.takeIf { it != LogCategory.DIAGNOSIS } ?: LogCategory.WATER) },
+                onClick = { vm.startNewEntry() },
                 icon = { Icon(Icons.Filled.Add, contentDescription = null) },
                 text = { Text("기록 추가", fontWeight = FontWeight.SemiBold) },
                 shape = RoundedCornerShape(18.dp),
@@ -146,52 +139,40 @@ fun LogScreen(state: UiState, vm: AppViewModel) {
             }
             item(key = "tiles") { StatusTiles(state, vm) }
             item(key = "diagnose") { DiagnoseCallout(recentCount = state.recentEntries.size) { vm.open(Screen.DIAGNOSE) } }
-            item(key = "filter") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
-                    Text("기록", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    FilterRow(state.filter, vm::setFilter)
+            item(key = "recent") {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+                    Text("최근 기록", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    if (state.entries.size > HOME_RECENT) {
+                        TextButton(onClick = { vm.open(Screen.RECORDS) }) { Text("전체 ${state.entries.size}개 보기") }
+                    }
                 }
             }
-
-            if (visible.isEmpty()) {
-                item(key = "empty") { EmptyLog(filtered = state.filter != null) }
+            if (state.entries.isEmpty()) {
+                item(key = "empty") { EmptyRecords(filtered = false) }
             }
-            grouped.forEach { (date, list) ->
-                item(key = "h$date") {
-                    val days = daysAgo(date)
-                    Text(
-                        if (days <= 1) "${relativeDay(days)} · ${date.koreanLabel()}" else "${date.koreanLabel()} · ${relativeDay(days)}",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                }
-                items(list, key = { it.id }) { entry ->
-                    EntryRow(
-                        entry = entry,
-                        photoDir = vm.photoDir,
-                        onOpen = { vm.openEntry(entry) },
-                        onDelete = { pendingDelete = entry },
-                    )
+            recordDays(state.entries.take(HOME_RECENT), vm.photoDir, onOpen = vm::openEntry, onDelete = { pendingDelete = it })
+            if (state.entries.size > HOME_RECENT) {
+                item(key = "more") {
+                    OutlinedButton(
+                        onClick = { vm.open(Screen.RECORDS) },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                    ) {
+                        Text("이전 기록 ${state.entries.size - HOME_RECENT}개 더 보기")
+                    }
                 }
             }
         }
     }
 
     pendingDelete?.let { target ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("이 기록을 삭제할까요?") },
-            text = {
-                Text("${target.date.koreanLabel()} · ${target.category.emoji} ${target.category.label}\n삭제하면 되돌릴 수 없어요.")
+        DeleteEntryDialog(
+            target,
+            onConfirm = {
+                vm.deleteEntry(target.id)
+                pendingDelete = null
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    vm.deleteEntry(target.id)
-                    pendingDelete = null
-                }) { Text("삭제") }
-            },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("취소") } },
+            onDismiss = { pendingDelete = null },
         )
     }
 }
@@ -455,114 +436,6 @@ private fun DiagnoseCallout(recentCount: Int, onClick: () -> Unit) {
                 )
             }
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun FilterRow(selected: LogCategory?, onSelect: (LogCategory?) -> Unit) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        item {
-            FilterChip(selected = selected == null, onClick = { onSelect(null) }, label = { Text("전체") })
-        }
-        items(LogCategory.entries) { c ->
-            FilterChip(
-                selected = selected == c,
-                onClick = { onSelect(if (selected == c) null else c) },
-                label = { Text("${c.emoji} ${c.label}") },
-            )
-        }
-    }
-}
-
-@Composable
-private fun EmptyLog(filtered: Boolean) {
-    Column(
-        Modifier.fillMaxWidth().padding(vertical = 32.dp, horizontal = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text("📒", fontSize = 40.sp)
-        Text(
-            if (filtered) "이 카테고리의 기록이 아직 없어요." else "아직 기록이 없어요.",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            "환수, 수초, 물고기 변화를 기록해 두면\nAI가 문제의 원인을 더 정확히 찾아요.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-    }
-}
-
-@Composable
-private fun EntryRow(entry: LogEntry, photoDir: File, onOpen: () -> Unit, onDelete: () -> Unit) {
-    Card(
-        onClick = onOpen,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-    ) {
-        Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(
-                Modifier.size(40.dp).background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(12.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(entry.category.emoji, fontSize = 20.sp)
-            }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(entry.category.label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                val d = entry.diagnosis
-                if (entry.category == LogCategory.DIAGNOSIS && d != null) {
-                    Badge("${d.score}점 · ${d.level.label}", d.level.color())
-                    Text(d.headline, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    if (entry.note.isNotBlank()) {
-                        Text(
-                            "메모: ${entry.note}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                } else {
-                    Text(
-                        entry.summary.ifBlank { "(내용 없음)" },
-                        style = MaterialTheme.typography.bodyLarge,
-                        maxLines = 4,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            entry.photos.firstOrNull()?.let { name ->
-                FileThumb(File(photoDir, name), 56.dp)
-            }
-            Box {
-                var menuOpen by remember { mutableStateOf(false) }
-                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Filled.MoreVert, contentDescription = "수정·삭제 메뉴")
-                }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text(if (entry.category == LogCategory.DIAGNOSIS) "결과 보기" else "수정") },
-                        leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            onOpen()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("삭제") },
-                        leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            onDelete()
-                        },
-                    )
-                }
-            }
         }
     }
 }

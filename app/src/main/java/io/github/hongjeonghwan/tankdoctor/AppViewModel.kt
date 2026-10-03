@@ -40,7 +40,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
 
-enum class Screen { LOG, EDITOR, DIAGNOSE, RESULT, FISH, HISTORY, SETTINGS }
+enum class Screen { LOG, EDITOR, DIAGNOSE, RESULT, FISH, HISTORY, SETTINGS, RECORDS }
 
 const val MAX_PHOTOS = 5
 const val MAX_FISH_PHOTOS = 3
@@ -72,6 +72,8 @@ data class UiState(
     val settingsReturn: Screen = Screen.LOG,
     val fishReturn: Screen = Screen.LOG,
     val resultReturn: Screen = Screen.LOG,
+    /** Where saving or leaving the entry editor goes: home or the full log. */
+    val editorReturn: Screen = Screen.LOG,
     // care log
     val entries: List<LogEntry> = emptyList(),
     val filter: LogCategory? = null,
@@ -187,6 +189,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 scanCrops = emptyList(),
                 error = null,
             )
+            Screen.EDITOR -> s.copy(screen = s.editorReturn, error = null)
+            Screen.RECORDS -> s.copy(screen = Screen.LOG, filter = null)
             Screen.RESULT -> s.copy(
                 screen = s.resultReturn,
                 result = null,
@@ -203,7 +207,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setFilter(category: LogCategory?) = _state.update { it.copy(filter = category) }
 
     fun startNewEntry(category: LogCategory = LogCategory.WATER) =
-        _state.update { it.copy(screen = Screen.EDITOR, draft = EntryDraft(selected = listOf(category))) }
+        _state.update {
+            it.copy(screen = Screen.EDITOR, editorReturn = editorReturnFrom(it), draft = EntryDraft(selected = listOf(category)))
+        }
+
+    private fun editorReturnFrom(s: UiState) =
+        if (s.screen == Screen.EDITOR) s.editorReturn else if (s.screen == Screen.RECORDS) Screen.RECORDS else Screen.LOG
 
     fun openEntry(entry: LogEntry) {
         if (entry.category == LogCategory.DIAGNOSIS) openDiagnosisEntry(entry) else editEntry(entry)
@@ -212,6 +221,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun editEntry(entry: LogEntry) = _state.update {
         it.copy(
             screen = Screen.EDITOR,
+            editorReturn = editorReturnFrom(it),
             draft = EntryDraft(
                 editingId = entry.id,
                 date = entry.date,
@@ -283,7 +293,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         commit(updated)
-        _state.update { it.copy(screen = Screen.LOG, draft = EntryDraft(), toast = message, filter = null) }
+        _state.update {
+            it.copy(
+                screen = it.editorReturn,
+                draft = EntryDraft(),
+                toast = message,
+                filter = if (it.editorReturn == Screen.RECORDS) it.filter else null,
+            )
+        }
     }
 
     /** The home card's one-tap 환수 entry; does nothing if today already has one. */
@@ -303,7 +320,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (target.photos.isNotEmpty()) store.deletePhotosAsync(target.photos)
         _state.update {
             it.copy(
-                screen = Screen.LOG,
+                // Stay on the list the delete came from.
+                screen = when (it.screen) {
+                    Screen.RECORDS -> Screen.RECORDS
+                    Screen.EDITOR -> it.editorReturn
+                    Screen.RESULT -> it.resultReturn
+                    else -> Screen.LOG
+                },
                 draft = EntryDraft(),
                 result = null,
                 resultPhotos = emptyList(),

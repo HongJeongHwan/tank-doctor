@@ -14,6 +14,7 @@ import io.github.hongjeonghwan.tankdoctor.ui.EntryEditorScreen
 import io.github.hongjeonghwan.tankdoctor.ui.FishScreen
 import io.github.hongjeonghwan.tankdoctor.ui.HistoryScreen
 import io.github.hongjeonghwan.tankdoctor.ui.LogScreen
+import io.github.hongjeonghwan.tankdoctor.ui.RecordsScreen
 import io.github.hongjeonghwan.tankdoctor.ui.ResultScreen
 import io.github.hongjeonghwan.tankdoctor.ui.SettingsScreen
 import io.github.hongjeonghwan.tankdoctor.ui.theme.TankDoctorTheme
@@ -43,6 +44,7 @@ fun TankDoctorApp(vm: AppViewModel = viewModel()) {
         Screen.RESULT -> state.result?.let { ResultScreen(state, it, vm) } ?: LogScreen(state, vm)
         Screen.FISH -> FishScreen(state, vm)
         Screen.HISTORY -> HistoryScreen(state, vm)
+        Screen.RECORDS -> RecordsScreen(state, vm)
         Screen.SETTINGS -> SettingsScreen(state, vm)
     }
 }
