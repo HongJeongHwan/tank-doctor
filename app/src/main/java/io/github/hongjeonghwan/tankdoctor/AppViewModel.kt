@@ -7,6 +7,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.hongjeonghwan.tankdoctor.data.AppRelease
+import io.github.hongjeonghwan.tankdoctor.data.AppUpdate
 import io.github.hongjeonghwan.tankdoctor.data.Diagnosis
 import io.github.hongjeonghwan.tankdoctor.data.GeminiClient
 import io.github.hongjeonghwan.tankdoctor.data.GeminiException
@@ -98,6 +100,11 @@ data class UiState(
     val resultPhotos: List<Photo> = emptyList(),
     val resultEntryId: Long? = null,
     val justSaved: Boolean = false,
+    // app update
+    val update: AppRelease? = null,
+    /** 0..1 while the APK is downloading. */
+    val updateProgress: Float? = null,
+    val updateNotice: String? = null,
     // misc
     val error: String? = null,
     val settingsNotice: String? = null,
@@ -156,6 +163,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             _state.update { it.copy(entries = sorted(loaded)) }
             rescheduleWater()
         }
+        checkUpdate()
     }
 
     // ---------- navigation ----------
@@ -165,6 +173,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             screen = screen,
             settingsReturn = if (screen == Screen.SETTINGS && it.screen != Screen.SETTINGS) it.screen else it.settingsReturn,
             settingsNotice = null,
+            updateNotice = null,
         )
     }
 
@@ -467,6 +476,59 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         rescheduleWater()
+    }
+
+    // ---------- app update ----------
+
+    /** On launch a skipped version stays quiet and failures are silent; [manual] reports both. */
+    fun checkUpdate(manual: Boolean = false) {
+        if (manual) _state.update { it.copy(updateNotice = "확인하는 중…") }
+        viewModelScope.launch {
+            val result = runCatching { AppUpdate.check(BuildConfig.VERSION_NAME) }
+            val release = result.getOrNull()
+            _state.update { s ->
+                when {
+                    result.isFailure -> if (manual) {
+                        s.copy(updateNotice = "업데이트를 확인하지 못했어요. 인터넷 연결을 확인해 주세요.")
+                    } else {
+                        s
+                    }
+                    release == null -> s.copy(update = null, updateNotice = if (manual) "최신 버전이에요." else null)
+                    manual || release.version != settings.skippedVersion -> s.copy(update = release, updateNotice = null)
+                    else -> s
+                }
+            }
+        }
+    }
+
+    fun skipUpdate() {
+        val release = _state.value.update ?: return
+        settings.skippedVersion = release.version
+        _state.update { it.copy(update = null, updateNotice = null) }
+    }
+
+    fun installUpdate() {
+        val s = _state.value
+        val release = s.update ?: return
+        if (s.updateProgress != null) return
+        val app = getApplication<Application>()
+        if (!AppUpdate.canInstall(app)) {
+            AppUpdate.openInstallPermission(app)
+            _state.update { it.copy(updateNotice = "'이 출처 허용'을 켠 뒤 돌아와서 다시 업데이트를 눌러 주세요.") }
+            return
+        }
+        _state.update { it.copy(updateProgress = 0f, updateNotice = null) }
+        viewModelScope.launch {
+            try {
+                val apk = AppUpdate.download(app, release) { p -> _state.update { it.copy(updateProgress = p) } }
+                _state.update { it.copy(updateProgress = null) }
+                AppUpdate.install(app, apk)
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(updateProgress = null, updateNotice = "새 버전을 받지 못했어요. (${e.message ?: e.javaClass.simpleName})")
+                }
+            }
+        }
     }
 
     // ---------- fish ----------

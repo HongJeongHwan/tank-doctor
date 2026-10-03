@@ -54,6 +54,11 @@ class SettingsStore(context: Context) {
             .putInt("water_minute", value.minuteOfDay)
             .apply()
 
+    /** A release the user chose "나중에" for; it is not offered again on launch. */
+    var skippedVersion: String
+        get() = prefs.getString("skipped_version", "").orEmpty()
+        set(value) = prefs.edit().putString("skipped_version", value).apply()
+
     var model: String
         get() = prefs.getString("model", null)?.takeIf { id -> MODELS.any { it.id == id } } ?: DEFAULT_MODEL
         set(value) = prefs.edit().putString("model", value).apply()

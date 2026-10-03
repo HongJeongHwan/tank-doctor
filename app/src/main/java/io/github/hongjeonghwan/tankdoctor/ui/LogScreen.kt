@@ -84,10 +84,10 @@ fun LogScreen(state: UiState, vm: AppViewModel) {
     val snackbar = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<LogEntry?>(null) }
 
-    // After a save/delete: jump to the list (index 3 = first item after summary, callout, filters) and confirm.
+    // After a save/delete: jump to the list (first item after update banner, summary, callout, filters) and confirm.
     LaunchedEffect(state.toast) {
         val message = state.toast ?: return@LaunchedEffect
-        listState.animateScrollToItem(3)
+        listState.animateScrollToItem(if (state.update != null) 4 else 3)
         snackbar.showSnackbar(message)
         vm.consumeToast()
     }
@@ -118,6 +118,9 @@ fun LogScreen(state: UiState, vm: AppViewModel) {
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 104.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (state.update != null) {
+                item(key = "update") { UpdateCard(state, vm) }
+            }
             item(key = "summary") {
                 SummaryCard(
                     entries = state.entries,

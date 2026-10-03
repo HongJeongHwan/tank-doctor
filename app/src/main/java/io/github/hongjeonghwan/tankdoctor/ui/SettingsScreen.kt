@@ -57,6 +57,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import io.github.hongjeonghwan.tankdoctor.AppViewModel
+import io.github.hongjeonghwan.tankdoctor.BuildConfig
 import io.github.hongjeonghwan.tankdoctor.Screen
 import io.github.hongjeonghwan.tankdoctor.UiState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -303,6 +304,25 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) {
                 Text("저장")
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "현재 버전 v${BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { vm.checkUpdate(manual = true) }, enabled = state.updateProgress == null) {
+                    Text("업데이트 확인")
+                }
+            }
+            if (state.update != null) {
+                UpdateCard(state, vm, showLater = false)
+            } else {
+                state.updateNotice?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             Text(
                 "진단할 때 사진이 Google Gemini API로 전송돼요. 이 앱은 사진이나 키를 따로 수집하지 않아요.",
