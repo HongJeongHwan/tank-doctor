@@ -2,6 +2,20 @@
 
 package io.github.hongjeonghwan.tankdoctor.ui
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,7 +39,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Switch
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
@@ -114,7 +127,7 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             state.settingsNotice?.let {
                 NoticeCard(
@@ -125,222 +138,256 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
                 )
             }
 
-            Text("어항 크기", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(
-                "가로·세로(폭)·높이를 cm로 적어 주세요. AI가 과밀 여부와 환수·약품 양을 리터 기준으로 알려줘요.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(
-                    Triple("가로", width) { v: String -> width = v },
-                    Triple("세로", depth) { v: String -> depth = v },
-                    Triple("높이", height) { v: String -> height = v },
-                ).forEach { (label, value, onChange) ->
-                    OutlinedTextField(
-                        value = value,
-                        onValueChange = { v -> onChange(v.filter { it.isDigit() }.take(3)) },
-                        label = { Text(label) },
-                        suffix = { Text("cm") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-            Text(
-                if (size.isSet) "물 용량 약 ${size.liters}L" else "세 칸을 모두 채우면 용량이 계산돼요",
-                style = MaterialTheme.typography.labelLarge,
-                color = if (size.isSet) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-            Text("환수 주기", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(
-                "며칠마다 물을 갈아 줄지 정해 주세요. 마지막 환수 기록부터 날짜를 세서 알려줘요.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedTextField(
-                value = waterDays,
-                onValueChange = { v -> waterDays = v.filter { it.isDigit() }.take(2) },
-                label = { Text("주기 (비우면 끄기)") },
-                suffix = { Text("일마다") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(3, 7, 14).forEach { d ->
-                    FilterChip(
-                        selected = water.intervalDays == d,
-                        onClick = { waterDays = d.toString() },
-                        label = { Text("${d}일") },
-                    )
-                }
-            }
-            water.dueDate(lastWaterChange(state.entries))?.let { due ->
-                Text(
-                    "다음 환수 ${due.koreanLabel()} · ${dueLabel(due)}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("환수 알림", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        if (water.isSet) "예정일에 알려주고, 기록할 때까지 매일 다시 알려줘요."
-                        else "주기를 먼저 정해 주세요.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = waterNotify && water.isSet,
-                    enabled = water.isSet,
-                    onCheckedChange = { on ->
-                        notifyDenied = false
-                        val needsAsk = on && Build.VERSION.SDK_INT >= 33 &&
-                            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-                            PackageManager.PERMISSION_GRANTED
-                        if (needsAsk) askNotify.launch(Manifest.permission.POST_NOTIFICATIONS) else waterNotify = on
-                    },
-                )
-            }
-            if (waterNotify && water.isSet) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { pickingHoliday = false }, modifier = Modifier.weight(1f)) {
-                        Text("평일 · ${minuteLabel(weekdayMinute)}")
+            SettingsGroup("환수 주기") {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("며칠마다 물을 갈아 줄까요?", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = waterDays,
+                            onValueChange = { v -> waterDays = v.filter { it.isDigit() }.take(2) },
+                            placeholder = { Text("끄기") },
+                            suffix = { Text("일") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.width(104.dp),
+                        )
+                        listOf(3, 7, 14).forEach { d ->
+                            IntervalButton("${d}일", selected = water.intervalDays == d) { waterDays = d.toString() }
+                        }
                     }
-                    OutlinedButton(onClick = { pickingHoliday = true }, modifier = Modifier.weight(1f)) {
-                        Text("휴일 · ${minuteLabel(holidayMinute)}")
-                    }
-                }
-                Text(
-                    "휴일은 토·일요일과 공휴일(대체공휴일 포함)이에요.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (notifyDenied) {
-                Text(
-                    "알림 권한이 꺼져 있어요. 휴대폰 설정 > 앱 > 어항닥터에서 알림을 허용해 주세요.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-            Text("사는 생물", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(
-                state.livingFish.joinToString(" · ") { "${it.name} ${it.count}마리" }
-                    .ifBlank { "아직 등록된 생물이 없어요." },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            state.stocking?.let {
-                Text(
-                    "밀집도 ${it.percent}% · ${it.level.label}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = it.level.tone.color(),
-                )
-            }
-            OutlinedButton(
-                // Save first: leaving this screen drops anything typed above.
-                onClick = {
-                    vm.saveSettings(key, model, size, water)
-                    vm.openFishEditor()
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("사진으로 물고기 등록하기 →")
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-            Text("Gemini API 키", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(
-                "Google AI Studio에서 무료로 발급받을 수 있어요. 키는 이 휴대폰에만 저장돼요.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedTextField(
-                value = key,
-                onValueChange = { key = it.trim() },
-                label = { Text("API 키") },
-                singleLine = true,
-                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-                trailingIcon = {
-                    IconButton(onClick = { showKey = !showKey }) {
+                    val due = water.dueDate(lastWaterChange(state.entries))
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp))
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
                         Icon(
-                            if (showKey) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                            contentDescription = if (showKey) "키 숨기기" else "키 보기",
+                            Icons.Outlined.CalendarMonth,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            if (due != null) "다음 환수 ${due.koreanLabel()} · ${dueLabel(due)}"
+                            else "칸을 비우면 환수 주기와 알림이 꺼져요",
+                            style = MaterialTheme.typography.bodyMedium,
                         )
                     }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            TextButton(onClick = { uriHandler.openUri("https://aistudio.google.com/apikey") }) {
-                Text("무료 API 키 발급받기 →")
+                }
             }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-            Text("분석 모델", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            MODELS.forEach { option ->
+            SettingsGroup("알림") {
                 Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .selectable(selected = model == option.id, onClick = { model = option.id }, role = Role.RadioButton)
-                        .padding(vertical = 6.dp),
+                    Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    RadioButton(selected = model == option.id, onClick = null)
-                    Spacer(Modifier.width(12.dp))
-                    Column {
-                        Text(option.label, style = MaterialTheme.typography.bodyLarge)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("환수 알림", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                         Text(
-                            option.description,
+                            if (water.isSet) "예정일에 알리고, 기록할 때까지 매일 다시 알려요" else "환수 주기를 먼저 정해 주세요",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    Switch(
+                        checked = waterNotify && water.isSet,
+                        enabled = water.isSet,
+                        onCheckedChange = { on ->
+                            notifyDenied = false
+                            val needsAsk = on && Build.VERSION.SDK_INT >= 33 &&
+                                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                                PackageManager.PERMISSION_GRANTED
+                            if (needsAsk) askNotify.launch(Manifest.permission.POST_NOTIFICATIONS) else waterNotify = on
+                        },
+                    )
+                }
+                if (waterNotify && water.isSet) {
+                    GroupDivider()
+                    TimeRow("평일", "월–금", minuteLabel(weekdayMinute), holiday = false) { pickingHoliday = false }
+                    GroupDivider()
+                    TimeRow("휴일", "토·일·공휴일 (대체공휴일 포함)", minuteLabel(holidayMinute), holiday = true) { pickingHoliday = true }
+                }
+                if (notifyDenied) {
+                    Text(
+                        "알림 권한이 꺼져 있어요. 휴대폰 설정 > 앱 > 어항닥터에서 알림을 허용해 주세요.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = 14.dp),
+                    )
                 }
             }
 
-            Spacer(Modifier.height(4.dp))
+            SettingsGroup("어항") {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("어항 크기", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "가로·세로(폭)·높이를 cm로 적으면 AI가 과밀 여부와 환수·약품 양을 리터 기준으로 알려줘요.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(
+                            Triple("가로", width) { v: String -> width = v },
+                            Triple("세로", depth) { v: String -> depth = v },
+                            Triple("높이", height) { v: String -> height = v },
+                        ).forEach { (label, value, onChange) ->
+                            OutlinedTextField(
+                                value = value,
+                                onValueChange = { v -> onChange(v.filter { it.isDigit() }.take(3)) },
+                                label = { Text(label) },
+                                suffix = { Text("cm") },
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                    Text(
+                        if (size.isSet) "물 용량 약 ${size.liters}L" else "세 칸을 모두 채우면 용량이 계산돼요",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (size.isSet) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                GroupDivider()
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        // Save first: leaving this screen drops anything typed above.
+                        .clickable {
+                            vm.saveSettings(key, model, size, water)
+                            vm.openFishEditor()
+                        }
+                        .padding(horizontal = 18.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("사는 생물", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            state.livingFish.joinToString(" · ") { "${it.name} ${it.count}마리" }
+                                .ifBlank { "사진으로 물고기를 등록해 보세요" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    state.stocking?.let {
+                        Text(
+                            "${it.percent}% · ${it.level.label}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = it.level.tone.color(),
+                        )
+                    }
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            SettingsGroup("AI 분석") {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Gemini API 키", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Google AI Studio에서 무료로 발급받을 수 있어요. 키는 이 휴대폰에만 저장돼요.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = key,
+                        onValueChange = { key = it.trim() },
+                        label = { Text("API 키") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { showKey = !showKey }) {
+                                Icon(
+                                    if (showKey) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                    contentDescription = if (showKey) "키 숨기기" else "키 보기",
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    TextButton(
+                        onClick = { uriHandler.openUri("https://aistudio.google.com/apikey") },
+                        contentPadding = PaddingValues(horizontal = 0.dp),
+                    ) {
+                        Text("무료 API 키 발급받기 →")
+                    }
+                }
+                GroupDivider()
+                Column(Modifier.padding(vertical = 8.dp)) {
+                    Text(
+                        "분석 모델",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+                    )
+                    MODELS.forEach { option ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .selectable(selected = model == option.id, onClick = { model = option.id }, role = Role.RadioButton)
+                                .padding(horizontal = 18.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = model == option.id, onClick = null)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(option.label, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    option.description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             Button(
                 onClick = { vm.saveSettings(key, model, size, water) },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(16.dp),
             ) {
-                Text("저장")
+                Text("저장", fontWeight = FontWeight.SemiBold)
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "현재 버전 v${BuildConfig.VERSION_NAME}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = { vm.checkUpdate(manual = true) }, enabled = state.updateProgress == null) {
-                    Text("업데이트 확인")
+            SettingsGroup("앱 정보") {
+                Row(
+                    Modifier.padding(start = 18.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("현재 버전 v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { vm.checkUpdate(manual = true) }, enabled = state.updateProgress == null) {
+                        Text("업데이트 확인")
+                    }
+                }
+                if (state.update == null) {
+                    state.updateNotice?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = 14.dp),
+                        )
+                    }
                 }
             }
-            if (state.update != null) {
-                UpdateCard(state, vm, showLater = false)
-            } else {
-                state.updateNotice?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+            if (state.update != null) UpdateCard(state, vm, showLater = false)
+
             Text(
                 "진단할 때 사진이 Google Gemini API로 전송돼요. 이 앱은 사진이나 키를 따로 수집하지 않아요.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp),
             )
             Spacer(Modifier.height(8.dp))
         }
@@ -362,5 +409,73 @@ fun SettingsScreen(state: UiState, vm: AppViewModel) {
             },
             dismissButton = { TextButton(onClick = { pickingHoliday = null }) { Text("취소") } },
         )
+    }
+}
+
+/** A small grey heading over one white card, as in the grouped settings design. */
+@Composable
+private fun SettingsGroup(label: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp),
+        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            content = content,
+        )
+    }
+}
+
+@Composable
+private fun GroupDivider() = HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainer)
+
+@Composable
+private fun RowScope.IntervalButton(label: String, selected: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(14.dp)
+    if (selected) {
+        Button(onClick = onClick, shape = shape, modifier = Modifier.weight(1f).height(52.dp), contentPadding = PaddingValues(0.dp)) {
+            Text(label, fontWeight = FontWeight.SemiBold)
+        }
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            shape = shape,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
+            modifier = Modifier.weight(1f).height(52.dp),
+            contentPadding = PaddingValues(0.dp),
+        ) {
+            Text(label)
+        }
+    }
+}
+
+/** One reminder time: a tinted day-kind tag, what it covers, and the time to tap. */
+@Composable
+private fun TimeRow(tag: String, covers: String, time: String, holiday: Boolean, onClick: () -> Unit) {
+    val (tint, ink) = if (holiday) {
+        MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceContainer to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClickLabel = "$tag 알림 시각 바꾸기", onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(Modifier.size(40.dp).background(tint, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+            Text(tag, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ink)
+        }
+        Text(covers, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Text(time, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
     }
 }

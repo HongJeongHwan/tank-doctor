@@ -286,6 +286,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(screen = Screen.LOG, draft = EntryDraft(), toast = message, filter = null) }
     }
 
+    /** The home card's one-tap 환수 entry; does nothing if today already has one. */
+    fun logWaterToday() {
+        val today = LocalDate.now()
+        val current = _state.value.entries
+        if (current.any { it.category == LogCategory.WATER && it.date == today }) return
+        commit(current + LogEntry(newId(), today, LogCategory.WATER, "환수"))
+        _state.update { it.copy(toast = "오늘 환수를 기록했어요") }
+    }
+
     fun consumeToast() = _state.update { it.copy(toast = null) }
 
     fun deleteEntry(id: Long) {
